@@ -1,0 +1,29 @@
+{
+  "name": "hivemind",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Turn ephemeral group chats into a verifiable, portable AI memory lake on Walrus.",
+  "scripts": {
+    "flow1": "tsx scripts/flow1.ts",
+    "flow2": "tsx scripts/flow2.ts",
+    "seal-test": "tsx scripts/seal-test.ts",
+    "chain-test": "tsx scripts/chain-test.ts",
+    "namespace-test": "tsx scripts/namespace-test.ts",
+    "bot": "pnpm --filter @hivemind/bot start",
+    "onboard": "pnpm --filter @hivemind/onboard dev",
+    "mcp": "pnpm --filter @hivemind/mcp start",
+    "typecheck": "tsc --noEmit -p tsconfig.json && pnpm --filter @hivemind/onboard typecheck && pnpm --filter @hivemind/mcp typecheck"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "@types/node": "^22.9.0"
+  },
+  "dependencies": {
+    "@mysten-incubation/memwal": "^0.0.7",
+    "@mysten/sui": "^2.16.2",
+    "@hivemind/core": "workspace:*"
+  },
+  "packageManager": "pnpm@9.12.0"
+}

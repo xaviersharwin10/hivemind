@@ -1,0 +1,13 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+.mcp.json
+data/
+*.log
+.DS_Store
+
+# Local-only working docs (not part of the shipped repo)
+/ARCHITECTURE.md
+/USER_JOURNEYS.md
