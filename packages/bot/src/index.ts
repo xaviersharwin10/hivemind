@@ -78,7 +78,9 @@ if (!BOT_TOKEN) {
 const network = (env.SUI_NETWORK ?? "testnet") as SuiNetwork;
 const serverUrl = env.MEMWAL_SERVER_URL ?? MEMWAL[network].relayerUrl;
 const onboardUrl = env.ONBOARD_URL ?? "http://localhost:5173";
-const apiPort = Number(env.BOT_API_PORT ?? "8080");
+// Hosts like Railway/Render inject the public port as PORT; honour it first so the
+// onboarding API is reachable. Falls back to BOT_API_PORT, then 8080 for local dev.
+const apiPort = Number(env.PORT ?? env.BOT_API_PORT ?? "8080");
 const suiClient = makeSuiClient(network);
 // Local store: now just a CACHE of the bot's per-group secret (delegate key) +
 // member list. The canonical group→account/namespace/owner mapping is read from
