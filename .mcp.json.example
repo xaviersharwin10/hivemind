@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "hivemind": {
+      "command": "npx",
+      "args": ["tsx", "packages/mcp/src/index.ts"],
+      "env": {
+        "HIVEMIND_DELEGATE_KEY": "<your delegate key — from the bot's /connect DM>",
+        "HIVEMIND_ACCOUNT_ID": "<your group's MemWalAccount id>",
+        "HIVEMIND_NAMESPACE": "main",
+        "HIVEMIND_NETWORK": "testnet"
+      }
+    }
+  }
+}
