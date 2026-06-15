@@ -1,0 +1,14 @@
+.git
+node_modules
+**/node_modules
+dist
+**/dist
+**/build
+data
+.env
+.env.*
+**/.env
+**/.env.*
+*.log
+architecture-preview.png
+docs/architecture.png
