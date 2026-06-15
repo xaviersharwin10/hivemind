@@ -1,0 +1,10 @@
+[package]
+name = "hivemind"
+edition = "2024.beta"
+license = "Apache-2.0"
+
+# Sui + MoveStdlib are provided implicitly by the toolchain (Sui >= 1.45),
+# so no explicit git dependency is needed for a testnet build/publish.
+
+[addresses]
+hivemind = "0x0"
