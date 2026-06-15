@@ -1,0 +1,40 @@
+flowchart TB
+  classDef write fill:#0e2436,stroke:#38bdf8,color:#e0f2fe,stroke-width:2px;
+  classDef read  fill:#241040,stroke:#c084fc,color:#f3e8ff,stroke-width:2px;
+  classDef mem   fill:#0f2a1c,stroke:#34d399,color:#d1fae5,stroke-width:3px;
+  classDef base  fill:#10243f,stroke:#f6c453,color:#fde68a,stroke-width:2px;
+  classDef lane  fill:#0b1220,stroke:#334155,stroke-width:1px,color:#cbd5e1;
+
+  subgraph WRITE["CAPTURE  -  automatic, inside Telegram"]
+    direction TB
+    TG["Telegram Group<br/>decisions and files"]
+    BOT["HiveMind Bot<br/>captures and Seal-encrypts"]
+    TG -->|"share"| BOT
+  end
+
+  subgraph READ["RECALL  -  any MCP-compatible AI"]
+    direction TB
+    AI["Your AI<br/>Claude / Cursor"]
+    MCP["MCP Server<br/>runs on your own machine"]
+    AI -->|"ask"| MCP
+  end
+
+  MEM["<b>VERIFIABLE MEMORY</b> &nbsp; (group-owned, not us)<br/><br/>Seal-encrypted files on Walrus &nbsp; + &nbsp; MemWal semantic memory"]
+
+  SUI["<b>SUI &nbsp; - &nbsp; hivemind::registry</b> (our Move package)<br/><br/>zkLogin sign-in &nbsp; - &nbsp; Enoki gas sponsorship<br/>SHA-256 file manifest &nbsp; - &nbsp; delegate-key access"]
+
+  BOT ==>|"write"| MEM
+  MCP ==>|"read and decrypt"| MEM
+  MEM ==>|"anchored and access-gated by"| SUI
+
+  class TG,BOT write;
+  class AI,MCP read;
+  class MEM mem;
+  class SUI base;
+  class WRITE,READ lane;
+
+  linkStyle 0 stroke:#38bdf8,stroke-width:2px;
+  linkStyle 1 stroke:#c084fc,stroke-width:2px;
+  linkStyle 2 stroke:#38bdf8,stroke-width:3px;
+  linkStyle 3 stroke:#c084fc,stroke-width:3px;
+  linkStyle 4 stroke:#f6c453,stroke-width:3px;

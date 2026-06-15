@@ -16,12 +16,11 @@ You invite `@HiveMind_Bot` into your existing Telegram group. It sits in the bac
 
 Later, any MCP-compatible AI tool (Claude Desktop, Cursor) plugs into that memory and can **recall the group's decisions and read the original files** — without anyone copy-pasting a thing.
 
-```
-Telegram group  ──►  HiveMind bot  ──►  Walrus (files) + MemWal (memory)
-                                              │
-   "Write the server based on what we         ▼
-    decided in Telegram today."  ◄──  Claude / Cursor  (via MCP)
-```
+## Architecture
+
+![HiveMind architecture](docs/architecture.png)
+
+A **capture** path (Telegram → bot) and a **recall** path (your AI → a local MCP server) converge on one **group-owned, verifiable memory** — Seal-encrypted files on Walrus plus MemWal semantic memory — all anchored and access-gated on Sui by our `hivemind::registry` Move package (zkLogin sign-in, Enoki gas sponsorship, SHA-256 file manifest, delegate-key access). Two runtimes, one shared memory; the original plaintext is only ever decrypted on the member's own machine.
 
 ## Why it fits the Walrus track
 
