@@ -21,6 +21,10 @@ mod apps {
     #[cfg(feature = "seal-example")]
     #[path = "seal-example/mod.rs"]
     pub mod seal_example;
+
+    #[cfg(feature = "hivemind")]
+    #[path = "hivemind/mod.rs"]
+    pub mod hivemind;
 }
 
 pub mod app {
@@ -32,6 +36,9 @@ pub mod app {
 
     #[cfg(feature = "seal-example")]
     pub use crate::apps::seal_example::*;
+
+    #[cfg(feature = "hivemind")]
+    pub use crate::apps::hivemind::*;
 }
 
 pub mod common;
