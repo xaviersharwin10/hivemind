@@ -1,0 +1,9 @@
+[package]
+name = "hivemind_enclave"
+edition = "2024.beta"
+
+[dependencies]
+enclave = { local = "../enclave" }
+
+[addresses]
+app = "0x0"
