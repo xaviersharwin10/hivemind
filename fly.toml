@@ -1,0 +1,30 @@
+# Fly.io config for the HiveMind backend (Telegram bot + onboarding API).
+# `fly launch` will prompt for a globally-unique app name and a region and
+# write them here; the rest below is pre-tuned for an always-on polling bot.
+app = "hivemind-bot"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  SUI_NETWORK = "testnet"
+  MEMWAL_SERVER_URL = "https://relayer-staging.memory.walrus.xyz"
+  MCP_PACKAGE = "hivemind-memory-mcp"
+  # Fly does not auto-inject PORT; the onboarding API reads this.
+  PORT = "8000"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # CRITICAL: keep the machine running 24/7 so the long-polling bot never stops.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
