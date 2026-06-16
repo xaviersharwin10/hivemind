@@ -36,6 +36,21 @@ Each group's memory lives in its own **`MemWalAccount` on Sui, owned by the grou
 
 ---
 
+## Who it's for — value at a glance
+
+**Value proposition:** group chats are where decisions actually happen — and where they're instantly lost. HiveMind turns that throwaway context into a **verifiable, portable memory the group owns**, so any AI can act on what was decided without a human re-assembling context by hand.
+
+| User Persona | Real-World Scenario | Quantifiable Impact |
+|---|---|---|
+| **Early-stage startup / small dev team** | Architecture and product calls get made in the Telegram group, then buried. To get Claude or Cursor to build the agreed design, someone re-pastes scattered messages and re-uploads the spec into every new AI session. | **~3–5 hrs/week per dev** reclaimed from rebuilding context; every new AI session starts with full project memory in seconds, not minutes of copy-paste. |
+| **Freelance agency ↔ client group** | Clients drop briefs, brand assets and `final_v3.pdf` into the chat; weeks later nobody can find which file or which decision was approved, sparking scope disputes. | Every file is **hash-anchored and recallable on demand** — kills "where's that file?" churn and scope-creep arguments; approvals resolved by proof, faster sign-off. |
+| **Web3 DAO / community organizer** | Governance and treasury decisions happen in Telegram with no durable, tamper-proof record; members later dispute "what was actually agreed." | A **verifiable, on-chain-anchored decision log** — disputes settled by cryptographic proof, not memory; full auditable history with zero extra tooling. |
+| **Distributed team across time zones** | Decisions get made while half the team sleeps; the other half spends the morning catching up or pinging around for context. | Replaces async catch-up threads — recall the night's decisions instantly; **~2–3 fewer sync calls/week** spent just re-establishing context. |
+| **Hackathon / student build team** | A fast 2–4 person team builds with AI on different laptops; each person's Claude/Cursor has no idea what the others decided or which files were shared. | A new teammate's AI is productive in **under 1 minute** from a single config paste — one shared, portable memory across every machine, no re-onboarding. |
+| **Open-source maintainer / mod team** | Design rationale and shared resources live in chat history a new contributor can't search; maintainers re-explain the same context again and again. | New-contributor ramp from **days to minutes** — their AI reads the group's real decisions and documents directly; far less repeated maintainer hand-holding. |
+
+---
+
 ## Status — what's working (proven on Sui testnet)
 
 | Flow | What it does | State |
