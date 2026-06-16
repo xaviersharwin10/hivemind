@@ -1,0 +1,25 @@
+# Render Blueprint for the HiveMind backend (Telegram bot + onboarding API).
+# Free plan. Render injects PORT (the onboarding API reads it). The service stays
+# awake via an external uptime pinger (see deploy notes) since the bot long-polls.
+services:
+  - type: web
+    name: hivemind-bot
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    envVars:
+      - key: SUI_NETWORK
+        value: testnet
+      - key: MEMWAL_SERVER_URL
+        value: https://relayer-staging.memory.walrus.xyz
+      - key: MCP_PACKAGE
+        value: hivemind-memory-mcp
+      # Secrets / per-deploy values — set these in the Render dashboard:
+      - key: ONBOARD_URL
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: ENOKI_PRIVATE_API_KEY
+        sync: false

@@ -2,7 +2,7 @@
 # `fly launch` will prompt for a globally-unique app name and a region and
 # write them here; the rest below is pre-tuned for an always-on polling bot.
 app = "hivemind-bot"
-primary_region = "iad"
+primary_region = "bom"
 
 [build]
   dockerfile = "Dockerfile"
