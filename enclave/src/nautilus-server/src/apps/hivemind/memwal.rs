@@ -29,12 +29,40 @@ pub struct MemwalConfig {
     pub delegate_key_hex: String,
 }
 
+/// The packed-secret shape injected in production. AWS Nitro tooling (and the
+/// Nautilus template) injects a single secret env var, so account_id + the
+/// delegate key travel together as one JSON blob.
+#[derive(Deserialize)]
+struct MemwalSecret {
+    account_id: String,
+    delegate_key: String,
+    #[serde(default)]
+    server_url: Option<String>,
+}
+
+const DEFAULT_SERVER_URL: &str = "https://relayer-staging.memory.walrus.xyz";
+
 impl MemwalConfig {
-    /// Load from env for the local debug loop.
+    /// Load credentials.
+    ///
+    /// Production (enclave): a single secret env var `HIVEMIND_MEMWAL_SECRET`
+    /// holding JSON `{account_id, delegate_key, server_url?}` — this matches the
+    /// Nautilus one-secret injection model (set `API_ENV_VAR_NAME`).
+    ///
+    /// Local debug: falls back to individual env vars.
     pub fn from_env() -> Result<Self, String> {
+        if let Ok(raw) = std::env::var("HIVEMIND_MEMWAL_SECRET") {
+            let s: MemwalSecret = serde_json::from_str(&raw)
+                .map_err(|e| format!("HIVEMIND_MEMWAL_SECRET is not valid JSON: {e}"))?;
+            return Ok(MemwalConfig {
+                server_url: s.server_url.unwrap_or_else(|| DEFAULT_SERVER_URL.to_string()),
+                account_id: s.account_id,
+                delegate_key_hex: s.delegate_key,
+            });
+        }
         Ok(MemwalConfig {
             server_url: std::env::var("MEMWAL_SERVER_URL")
-                .unwrap_or_else(|_| "https://relayer-staging.memory.walrus.xyz".to_string()),
+                .unwrap_or_else(|_| DEFAULT_SERVER_URL.to_string()),
             account_id: std::env::var("HIVEMIND_ACCOUNT_ID")
                 .map_err(|_| "HIVEMIND_ACCOUNT_ID not set".to_string())?,
             delegate_key_hex: std::env::var("HIVEMIND_DELEGATE_KEY")

@@ -1,0 +1,11 @@
+# External endpoints the HiveMind enclave is allowed to reach.
+#
+# The Nitro enclave has NO direct network access — the host (expose_enclave.sh
+# + configure_enclave.sh traffic forwarding) only proxies the hosts listed here.
+# KMS / Secrets Manager endpoints are appended automatically by
+# configure_enclave.sh (region-patched) when a secret is configured.
+endpoints:
+  # MemWal relayer — server-mode recall (POST /api/recall). This is the only
+  # outbound call the recall path makes; the relayer (itself a TEE) does the
+  # embedding + Seal decrypt + Walrus fetch and returns plaintext hits.
+  - relayer-staging.memory.walrus.xyz
