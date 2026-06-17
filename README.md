@@ -61,6 +61,7 @@ Each group's memory lives in its own **`MemWalAccount` on Sui, owned by the grou
 | **Seal-encrypted artifacts** | Files are Seal-encrypted before Walrus; decryption gated by the group's on-chain `seal_approve` | ✅ live E2E |
 | **Member handoff** | `/connect` → owner approves → member gets a delegate key + MCP config | ✅ live |
 | **`hivemind-read` MCP** | Claude/Cursor recall group memory + read (decrypt) the original Walrus files | ✅ live |
+| **Confidential remote MCP (Nautilus TEE)** | recall runs **inside an AWS Nitro enclave** that holds the key; results are enclave-signed and verified before use — unlocks zero-install **claude.ai** connectors without the operator ever seeing plaintext | 🧪 local PoC proven (Rust enclave + Move verifier + MCP-over-HTTP front, real recall vs testnet); OAuth + AWS deploy pending |
 
 The sections below cover the full design, the MemWal permission model, and the decisions behind it.
 
@@ -77,7 +78,12 @@ packages/
   bot/       Telegram bot + onboarding/sponsorship/handoff backend (:8080)
   onboard/   Vite + dapp-kit + Enoki SPA: Google sign-in → sponsored onboarding / member approval
   mcp/       hivemind-read MCP server (publishable npm pkg hivemind-memory-mcp):
-             recall() + read_artifact() with PDF/text extraction
+             recall() + read_artifact() with PDF/text extraction (local, self-custody)
+  remote-mcp/ claude.ai-facing MCP-over-HTTP server: proxies recall to the
+             Nautilus enclave and verifies the enclave's attestation signature
+enclave/     Nautilus (AWS Nitro TEE) confidential MCP:
+             src/nautilus-server/src/apps/hivemind  Rust app — attested recall over MemWal
+             move/hivemind-app                       Move pkg — enclave registration + verifier
 scripts/     flow1/flow2 (account + ingestion), seal-test, chain-test — runnable proofs
 ```
 
@@ -142,12 +148,51 @@ Contract build/test: `cd packages/contracts/hivemind && sui move test`.
 
 ---
 
+## Confidential remote MCP (Nautilus TEE)
+
+The local MCP gives **full self-custody** (the key and decryption stay on your machine) but needs an MCP-capable desktop app. To reach **claude.ai** (zero-install, the widest audience) the decryption has to happen server-side — which normally means the operator could read your group's memory. We close that gap with a **Trusted Execution Environment** via Sui's [**Nautilus**](https://docs.sui.io/concepts/cryptography/nautilus):
+
+```
+claude.ai ──MCP/HTTP──► remote-mcp ──► Nautilus enclave (AWS Nitro) ──► MemWal
+                            ▲                  holds key, decrypts,        │
+                            └── verifies enclave signature ──  signs result┘
+                                          (on-chain registered PCRs + pubkey)
+```
+
+- The **enclave** (`enclave/src/nautilus-server/src/apps/hivemind`, Rust) holds the delegate key, queries MemWal, and returns an **enclave-signed** recall result. The operator, host, even root **cannot read enclave memory** — so "not even us" holds even for the web tier.
+- The **Move package** (`enclave/move/hivemind-app`) registers the enclave on-chain (PCRs + pubkey from its attestation) and verifies its signed responses.
+- The **remote MCP** (`packages/remote-mcp`) speaks claude.ai's Streamable-HTTP transport, proxies recall to the enclave, and **cryptographically verifies the enclave's signature (BCS + Ed25519) before returning anything** — refusing unverified memory.
+
+**Status:** the full path is **proven on the free local loop** — the Rust enclave does real recall against the testnet relayer, and an MCP client pulls verified, attested results end to end. Remaining to go live: claude.ai **OAuth** and the **real AWS Nitro enclave + on-chain attestation**.
+
+Reproduce the local loop (no AWS needed):
+
+```bash
+# 1) build + run the enclave app locally (debug; real attestation needs Nitro hardware)
+cd enclave/src/nautilus-server
+API_KEY=unused MEMWAL_SERVER_URL=https://relayer-staging.memory.walrus.xyz \
+  HIVEMIND_ACCOUNT_ID=0x… HIVEMIND_DELEGATE_KEY=… \
+  cargo run --features hivemind          # :3000
+
+# 2) run the claude.ai-facing remote MCP, pointed at the enclave
+ENCLAVE_URL=http://localhost:3000 HIVEMIND_NAMESPACE=<chat id> \
+  pnpm --filter @hivemind/remote-mcp start    # :8787
+
+# 3) drive it with an MCP client → verified, attested recall
+pnpm --filter @hivemind/remote-mcp test-client "what did we decide?"
+```
+
+Move build: `cd enclave/move/hivemind-app && sui move build`.
+
+---
+
 ## Honest limitations / roadmap
 
 - **Per-group memory under a shared account.** A Sui address can own exactly one `MemWalAccount`, so a creator's multiple groups share one account — but each group has its **own namespace** (its chat id), so memories and Seal keys are separated per group and recall never mixes them (proven by `pnpm namespace-test`). The residual edge — a *malicious, technical* member of one group deliberately targeting another of the *same creator's* groups via the account-wide delegate — is the kind of thing production handles with server-side permissions (as every real app does); full cryptographic per-group isolation (per-group owner accounts) is a roadmap item, deliberately deferred because it trades everyday usability/recoverability for purity most users don't need.
 - **Adding a member needs the creator to approve** (owner-only `add_delegate_key`) — inherent to "no one but you holds the keys."
 - Telegram-only ingestion in v1; Discord/email forwarders are a roadmap slide.
+- **Confidential remote MCP (Nautilus TEE)** — local PoC proven (Rust enclave + Move verifier + attestation-verifying MCP-HTTP front, real recall vs testnet); going live needs claude.ai OAuth + a real AWS Nitro enclave with on-chain attestation. This is the path to a zero-install **claude.ai** connector that keeps "not even us" confidentiality on the web tier.
 
 ## Built with
 
-Sui Move · [Walrus](https://walrus.xyz) · [MemWal / Walrus Memory](https://github.com/MystenLabs/MemWal) · [Seal](https://seal.mystenlabs.com) · zkLogin · [Enoki](https://portal.enoki.mystenlabs.com) · [MCP](https://modelcontextprotocol.io) · TypeScript · telegraf · React/Vite
+Sui Move · [Walrus](https://walrus.xyz) · [MemWal / Walrus Memory](https://github.com/MystenLabs/MemWal) · [Seal](https://seal.mystenlabs.com) · [Nautilus (TEE)](https://docs.sui.io/concepts/cryptography/nautilus) · zkLogin · [Enoki](https://portal.enoki.mystenlabs.com) · [MCP](https://modelcontextprotocol.io) · Rust · TypeScript · telegraf · React/Vite
