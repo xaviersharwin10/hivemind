@@ -112,6 +112,9 @@ importers:
       '@mysten/sui':
         specifier: ^2.16.2
         version: 2.17.0(typescript@5.9.3)
+      '@stytch/react':
+        specifier: ^20.0.9
+        version: 20.0.9(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@tanstack/react-query':
         specifier: ^5.90.21
         version: 5.101.0(react@19.2.7)
@@ -1382,6 +1385,12 @@ packages:
 
   '@scure/bip39@2.2.0':
     resolution: {integrity: sha512-T/Bj/YvYMNkIPq6EENO6/rcs2e7qTNuyoUXf0KBFDmp0ZDu0H2X4Lq6yC3i0c8PcWkov5EbW+yQZZbdMmk154A==}
+
+  '@stytch/react@20.0.9':
+    resolution: {integrity: sha512-xR7fCxjltYsQPrk5cAcHU+R4wDm+gssGcYsIRadSkfV0mC2U24oaNCzG9Yk2P84r5tGAXvvA47y/rMrJo7HSPg==}
+    peerDependencies:
+      react: '>= 17.0.2'
+      react-dom: '>= 17.0.2'
 
   '@tanstack/query-core@5.101.0':
     resolution: {integrity: sha512-cQetA74EB+seWySv1TTKr828TnP0u39m6LykwDXIo84SNortpDkp30TMEjkqtYCNP9c40uT/iwl6MLiufEt0Ow==}
@@ -3368,6 +3377,11 @@ snapshots:
     dependencies:
       '@noble/hashes': 2.2.0
       '@scure/base': 2.2.0
+
+  '@stytch/react@20.0.9(react-dom@19.2.7(react@19.2.7))(react@19.2.7)':
+    dependencies:
+      react: 19.2.7
+      react-dom: 19.2.7(react@19.2.7)
 
   '@tanstack/query-core@5.101.0': {}
 

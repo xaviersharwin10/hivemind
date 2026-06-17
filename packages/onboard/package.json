@@ -13,6 +13,7 @@
     "@mysten/dapp-kit": "^1.0.3",
     "@mysten/enoki": "^1.0.4",
     "@mysten/sui": "^2.16.2",
+    "@stytch/react": "^20.0.9",
     "@tanstack/react-query": "^5.90.21",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
