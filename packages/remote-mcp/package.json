@@ -1,0 +1,19 @@
+{
+  "name": "@hivemind/remote-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Remote MCP server (Streamable HTTP) for claude.ai Custom Connectors — proxies recall to the HiveMind Nautilus enclave and returns attested results.",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "test-client": "tsx src/test-client.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}

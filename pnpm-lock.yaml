@@ -135,6 +135,19 @@ importers:
         specifier: ^6.0.7
         version: 6.4.3(@types/node@22.19.21)(tsx@4.22.4)
 
+  packages/remote-mcp:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@3.25.76)
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
+
 packages:
 
   '@0no-co/graphql.web@1.2.0':
