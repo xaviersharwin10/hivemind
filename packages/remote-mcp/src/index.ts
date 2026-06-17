@@ -25,11 +25,38 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
+import { bcs } from "@mysten/bcs";
+import * as ed from "@noble/ed25519";
 import { z } from "zod";
 
 const ENCLAVE_URL = (process.env.ENCLAVE_URL ?? "http://localhost:3000").replace(/\/$/, "");
 const NAMESPACE = process.env.HIVEMIND_NAMESPACE ?? "";
 const PORT = Number(process.env.PORT ?? 8787);
+// In production this MUST be the enclave key registered ON-CHAIN (from the
+// attestation), not whatever a server claims. For the local loop we fall back
+// to fetching it from the enclave's /health_check.
+const ENCLAVE_PUBKEY_ENV = process.env.ENCLAVE_PUBKEY;
+
+const RECALL_INTENT = 0;
+
+/** BCS layout — must match the Rust enclave app and the Move verifier exactly. */
+const RecallHitBcs = bcs.struct("RecallHit", { text: bcs.string(), relevance_bps: bcs.u16() });
+const RecallResponseBcs = bcs.struct("RecallResponse", {
+  namespace: bcs.string(),
+  hits: bcs.vector(RecallHitBcs),
+});
+const IntentMessageBcs = bcs.struct("IntentMessage", {
+  intent: bcs.u8(),
+  timestamp_ms: bcs.u64(),
+  data: RecallResponseBcs,
+});
+
+function hexToBytes(hex: string): Uint8Array {
+  const h = hex.startsWith("0x") ? hex.slice(2) : hex;
+  const out = new Uint8Array(h.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
 
 /** Shape of the enclave's signed /process_data response. */
 interface EnclaveRecall {
@@ -39,6 +66,32 @@ interface EnclaveRecall {
     data: { namespace: string; hits: { text: string; relevance_bps: number }[] };
   };
   signature: string;
+}
+
+let cachedPubkey: string | undefined = ENCLAVE_PUBKEY_ENV;
+async function enclavePubkey(): Promise<string> {
+  if (cachedPubkey) return cachedPubkey;
+  const r = await fetch(`${ENCLAVE_URL}/health_check`);
+  const j = (await r.json()) as { pk: string };
+  cachedPubkey = j.pk;
+  return cachedPubkey;
+}
+
+/** Re-derive the signed bytes and verify the enclave's Ed25519 signature. */
+async function verifyAttestation(out: EnclaveRecall): Promise<boolean> {
+  if (out.response.intent !== RECALL_INTENT) return false;
+  const msg = IntentMessageBcs.serialize({
+    intent: out.response.intent,
+    timestamp_ms: out.response.timestamp_ms,
+    data: out.response.data,
+  }).toBytes();
+  const sig = hexToBytes(out.signature);
+  const pk = hexToBytes(await enclavePubkey());
+  try {
+    return await ed.verifyAsync(sig, msg, pk);
+  } catch {
+    return false;
+  }
 }
 
 async function enclaveRecall(namespace: string, query: string, limit: number): Promise<EnclaveRecall> {
@@ -72,6 +125,23 @@ function makeMcpServer(): McpServer {
         return { content: [{ type: "text", text: "Server misconfigured: HIVEMIND_NAMESPACE is not set." }] };
       }
       const out = await enclaveRecall(NAMESPACE, query, limit ?? 5);
+
+      // Trust enforcement: verify the enclave actually signed this result before
+      // surfacing it. A mismatch means the response didn't come from the attested
+      // enclave (tampered/forged) — refuse it.
+      const verified = await verifyAttestation(out);
+      if (!verified) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: "⚠ Enclave attestation FAILED — the recall response was not validly signed by the attested HiveMind enclave. Refusing to return unverified memory.",
+            },
+          ],
+        };
+      }
+
       const hits = out.response.data.hits;
       if (hits.length === 0) {
         return { content: [{ type: "text", text: "No relevant group memory found." }] };
@@ -79,7 +149,7 @@ function makeMcpServer(): McpServer {
       const body = hits
         .map((h, i) => `${i + 1}. (relevance ${(h.relevance_bps / 10000).toFixed(2)}) ${h.text}`)
         .join("\n");
-      const trust = `\n\n— attested by enclave signature ${out.signature.slice(0, 16)}…`;
+      const trust = `\n\n✓ attested by enclave (sig ${out.signature.slice(0, 16)}…, verified)`;
       return { content: [{ type: "text", text: body + trust }] };
     },
   );
