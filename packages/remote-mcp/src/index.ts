@@ -28,6 +28,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { bcs } from "@mysten/bcs";
 import * as ed from "@noble/ed25519";
 import { z } from "zod";
+import { authEnabled, handleWellKnown, requireAuth } from "./auth.js";
 
 const ENCLAVE_URL = (process.env.ENCLAVE_URL ?? "http://localhost:3000").replace(/\/$/, "");
 const NAMESPACE = process.env.HIVEMIND_NAMESPACE ?? "";
@@ -177,6 +178,12 @@ function readBody(req: IncomingMessage): Promise<unknown> {
 }
 
 async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  // Gate every MCP call on a valid Stytch-issued token (when auth is enabled).
+  // A missing/invalid token writes the 401 + WWW-Authenticate challenge that
+  // bootstraps claude.ai's OAuth + Dynamic Client Registration flow.
+  const auth = await requireAuth(req, res);
+  if (auth === "challenged") return;
+
   const sessionId = req.headers["mcp-session-id"] as string | undefined;
   const body = req.method === "POST" ? await readBody(req) : undefined;
 
@@ -211,6 +218,14 @@ const httpServer = createServer((req, res) => {
     res.end("hivemind-remote-mcp ok");
     return;
   }
+  // OAuth discovery documents (served only when STYTCH_DOMAIN is configured).
+  if (req.url?.startsWith("/.well-known/")) {
+    handleWellKnown(req, res).catch((e) => {
+      if (!res.headersSent) res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: String(e) }));
+    });
+    return;
+  }
   if (req.url?.startsWith("/mcp")) {
     handleMcp(req, res).catch((e) => {
       if (!res.headersSent) res.writeHead(500, { "Content-Type": "application/json" });
@@ -224,6 +239,6 @@ const httpServer = createServer((req, res) => {
 
 httpServer.listen(PORT, () => {
   console.log(
-    `🛰️  hivemind-remote-mcp on :${PORT}  (enclave=${ENCLAVE_URL}, namespace=${NAMESPACE || "<unset>"})`,
+    `🛰️  hivemind-remote-mcp on :${PORT}  (enclave=${ENCLAVE_URL}, namespace=${NAMESPACE || "<unset>"}, auth=${authEnabled ? "stytch" : "off (local)"})`,
   );
 });
