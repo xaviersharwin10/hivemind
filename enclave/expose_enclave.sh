@@ -9,6 +9,8 @@ ENCLAVE_CID=$(nitro-cli describe-enclaves | jq -r ".[0].EnclaveCID")
 
 sleep 5
 # Secrets-block
+SECRET_VALUE=$(aws secretsmanager get-secret-value --secret-id arn:aws:secretsmanager:us-east-1:201949904589:secret:hivemind-memwal-IA9EOo --region us-east-1 | jq -r .SecretString)
+echo "$SECRET_VALUE" | jq -R '{"HIVEMIND_MEMWAL_SECRET": .}' > secrets.json
 # This section will be populated by configure_enclave.sh based on secret configuration
 
 cat secrets.json | socat - VSOCK-CONNECT:$ENCLAVE_CID:7777

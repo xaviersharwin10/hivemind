@@ -1,7 +1,46 @@
-# Render Blueprint for the HiveMind backend (Telegram bot + onboarding API).
-# Free plan. Render injects PORT (the onboarding API reads it). The service stays
-# awake via an external uptime pinger (see deploy notes) since the bot long-polls.
+# Render Blueprint for the HiveMind hosted product. Free plan; both services
+# build from the repo's single Dockerfile (pnpm workspace, run via tsx) and
+# override the start command. Render injects PORT + RENDER_EXTERNAL_URL.
+#
+# Secrets are `sync: false` → paste them in the Render dashboard (values live in
+# packages/*/.env locally). See RENDER_DEPLOY.md for the exact list + post-deploy
+# wiring (claude.ai connector URL, Stytch redirect, VITE_* on Vercel).
 services:
+  # 1) Confidential remote-MCP — claude.ai connects here (HTTPS). Also serves /bind.
+  - type: web
+    name: hivemind-mcp
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerCommand: pnpm --filter @hivemind/remote-mcp start
+    autoDeploy: true
+    envVars:
+      # Live AWS Nitro enclave (stable Elastic IP across stop/start).
+      - key: ENCLAVE_URL
+        value: http://34.203.108.130:3000
+      - key: ENCLAVE_PUBKEY
+        value: 5829a8f7ab72f5791050ea5bf54688e81faa451e783d3921c8e1aa6151339d4b
+      # Stytch OAuth (non-secret). SERVER_URL auto-derives from RENDER_EXTERNAL_URL.
+      - key: STYTCH_DOMAIN
+        value: https://groovy-cycle-8931.customers.stytch.dev
+      - key: STYTCH_PROJECT_ID
+        value: project-test-9eff4586-b6ee-49a3-adca-82cdb3ad7379
+      - key: STYTCH_PUBLIC_TOKEN
+        value: public-token-test-b0f980ab-fe87-437e-b1f5-9141ae8f5d3c
+      - key: STYTCH_API_BASE
+        value: https://test.stytch.com
+      # Secrets — set in dashboard:
+      - key: STYTCH_MGMT_KEY_ID
+        sync: false
+      - key: STYTCH_MGMT_SECRET
+        sync: false
+      - key: STYTCH_PROJECT_SECRET
+        sync: false
+      - key: BIND_SIGNING_SECRET
+        sync: false
+
+  # 2) Telegram bot + onboarding HTTP backend (long-polls; reads PORT for its API).
   - type: web
     name: hivemind-bot
     runtime: docker
@@ -16,10 +55,16 @@ services:
         value: https://relayer-staging.memory.walrus.xyz
       - key: MCP_PACKAGE
         value: hivemind-memory-mcp
-      # Secrets / per-deploy values — set these in the Render dashboard:
       - key: ONBOARD_URL
+        value: https://hivemind-onboard.vercel.app
+      # REMOTE_MCP_URL = the hivemind-mcp service URL; set after its first deploy
+      # (e.g. https://hivemind-mcp.onrender.com). Shown to users by /connect_claude.
+      - key: REMOTE_MCP_URL
         sync: false
+      # Secrets — set in dashboard:
       - key: BOT_TOKEN
         sync: false
       - key: ENOKI_PRIVATE_API_KEY
+        sync: false
+      - key: BIND_SIGNING_SECRET
         sync: false

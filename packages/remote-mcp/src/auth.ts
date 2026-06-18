@@ -34,7 +34,14 @@ import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 
 const STYTCH_DOMAIN = (process.env.STYTCH_DOMAIN ?? "").replace(/\/$/, "");
 const PROJECT_ID = process.env.STYTCH_PROJECT_ID ?? "";
-const SERVER_URL = (process.env.SERVER_URL ?? `http://localhost:${process.env.PORT ?? 8787}`).replace(/\/$/, "");
+// Public base URL (the OAuth `resource`). Prefer an explicit SERVER_URL; on Render
+// fall back to the auto-injected RENDER_EXTERNAL_URL so the hosted deploy is
+// self-configuring; finally localhost for dev.
+const SERVER_URL = (
+  process.env.SERVER_URL ??
+  process.env.RENDER_EXTERNAL_URL ??
+  `http://localhost:${process.env.PORT ?? 8787}`
+).replace(/\/$/, "");
 
 export const authEnabled = STYTCH_DOMAIN.length > 0;
 
