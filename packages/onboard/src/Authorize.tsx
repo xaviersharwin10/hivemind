@@ -15,6 +15,7 @@
  * dashboard (Connected Apps).
  */
 
+import { useEffect } from "react";
 import {
   StytchProvider,
   StytchLogin,
@@ -45,6 +46,26 @@ const loginStyles = {
 
 function Gate() {
   const { user } = useStytchUser();
+
+  // Preserve the OAuth request params (client_id, redirect_uri, scope, state…)
+  // across the magic-link email round-trip, which otherwise drops the query
+  // string and leaves <IdentityProvider/> with nothing to consent to.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has("client_id")) {
+      sessionStorage.setItem("hm_oauth_params", window.location.search);
+    }
+  }, []);
+
+  // After login we may land back here without the OAuth params — restore them
+  // so the consent screen (not the login form) renders.
+  useEffect(() => {
+    if (!user) return;
+    if (!new URLSearchParams(window.location.search).has("client_id")) {
+      const saved = sessionStorage.getItem("hm_oauth_params");
+      if (saved) window.location.replace(`/oauth/authorize${saved}`);
+    }
+  }, [user]);
+
   return (
     <div style={card}>
       <div style={{ fontSize: 40, lineHeight: 1 }}>🐝</div>
