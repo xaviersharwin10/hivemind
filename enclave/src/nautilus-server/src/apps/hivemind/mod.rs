@@ -35,8 +35,15 @@ pub enum IntentScope {
 }
 
 /// Inner type T for ProcessDataRequest<T> — a recall query against one group.
+///
+/// `account_id` + `namespace` identify the target group and are supplied by the
+/// remote MCP from the *verified caller identity* (Stytch trusted_metadata), never
+/// from untrusted user input — that's what enforces per-user group isolation. The
+/// enclave's stable delegate key must be authorized on `account_id`.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RecallRequest {
+    /// The group's MemWalAccount object id.
+    pub account_id: String,
     /// The group's MemWal namespace (the Telegram chat id).
     pub namespace: String,
     /// What to look for, in plain language.
@@ -72,12 +79,19 @@ pub async fn process_data(
     let payload = request.payload;
     let limit = payload.limit.unwrap_or(5);
 
-    // Enclave-held MemWal credentials (env for the local debug loop; Seal-provisioned
-    // in production). Server-mode recall returns already-decrypted text.
+    // The enclave's stable delegate credentials (env for the local debug loop;
+    // Seal-provisioned in production). Server-mode recall returns already-decrypted
+    // text. The target group is `payload.account_id`, set from the verified caller.
     let cfg = MemwalConfig::from_env().map_err(EnclaveError::GenericError)?;
-    let result = memwal::recall(&cfg, &payload.namespace, &payload.query, limit)
-        .await
-        .map_err(|e| EnclaveError::GenericError(format!("recall failed: {e}")))?;
+    let result = memwal::recall(
+        &cfg,
+        &payload.account_id,
+        &payload.namespace,
+        &payload.query,
+        limit,
+    )
+    .await
+    .map_err(|e| EnclaveError::GenericError(format!("recall failed: {e}")))?;
 
     let hits = result
         .results

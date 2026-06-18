@@ -20,21 +20,23 @@ use fastcrypto::hash::{HashFunction, Sha256};
 use fastcrypto::traits::{KeyPair, Signer, ToFromBytes};
 use serde::{Deserialize, Serialize};
 
-/// Enclave-held MemWal credentials. In production these are provisioned to the
-/// enclave as a Seal secret; for local debugging they come from env vars.
+/// The enclave's *stable* delegate identity — one keypair for the whole enclave,
+/// NOT per-group. Its Sui address is authorized on each group's MemWalAccount
+/// (via `add_delegate_key`), so this single key can recall any group it's been
+/// authorized for. The target group is chosen per-request via `account_id`
+/// (multi-tenant). In production the key is Seal-provisioned to this enclave's
+/// PCRs; for local debugging it comes from env vars.
 pub struct MemwalConfig {
     pub server_url: String,
-    pub account_id: String,
-    /// 32-byte Ed25519 delegate private key, hex-encoded (no 0x).
+    /// 32-byte Ed25519 enclave-delegate private key, hex-encoded (no 0x).
     pub delegate_key_hex: String,
 }
 
-/// The packed-secret shape injected in production. AWS Nitro tooling (and the
-/// Nautilus template) injects a single secret env var, so account_id + the
-/// delegate key travel together as one JSON blob.
+/// The packed-secret shape injected in production. The Nautilus tooling injects a
+/// single secret env var, so the enclave delegate key + server url travel as one
+/// JSON blob. No per-group account here — accounts are passed per request.
 #[derive(Deserialize)]
 struct MemwalSecret {
-    account_id: String,
     delegate_key: String,
     #[serde(default)]
     server_url: Option<String>,
@@ -43,28 +45,25 @@ struct MemwalSecret {
 const DEFAULT_SERVER_URL: &str = "https://relayer-staging.memory.walrus.xyz";
 
 impl MemwalConfig {
-    /// Load credentials.
+    /// Load the enclave delegate credentials.
     ///
     /// Production (enclave): a single secret env var `HIVEMIND_MEMWAL_SECRET`
-    /// holding JSON `{account_id, delegate_key, server_url?}` — this matches the
-    /// Nautilus one-secret injection model (set `API_ENV_VAR_NAME`).
+    /// holding JSON `{delegate_key, server_url?}` — matches the Nautilus
+    /// one-secret injection model (set `API_ENV_VAR_NAME`).
     ///
-    /// Local debug: falls back to individual env vars.
+    /// Local debug: falls back to `HIVEMIND_DELEGATE_KEY` / `MEMWAL_SERVER_URL`.
     pub fn from_env() -> Result<Self, String> {
         if let Ok(raw) = std::env::var("HIVEMIND_MEMWAL_SECRET") {
             let s: MemwalSecret = serde_json::from_str(&raw)
                 .map_err(|e| format!("HIVEMIND_MEMWAL_SECRET is not valid JSON: {e}"))?;
             return Ok(MemwalConfig {
                 server_url: s.server_url.unwrap_or_else(|| DEFAULT_SERVER_URL.to_string()),
-                account_id: s.account_id,
                 delegate_key_hex: s.delegate_key,
             });
         }
         Ok(MemwalConfig {
             server_url: std::env::var("MEMWAL_SERVER_URL")
                 .unwrap_or_else(|_| DEFAULT_SERVER_URL.to_string()),
-            account_id: std::env::var("HIVEMIND_ACCOUNT_ID")
-                .map_err(|_| "HIVEMIND_ACCOUNT_ID not set".to_string())?,
             delegate_key_hex: std::env::var("HIVEMIND_DELEGATE_KEY")
                 .map_err(|_| "HIVEMIND_DELEGATE_KEY not set".to_string())?,
         })
@@ -105,8 +104,13 @@ fn keypair(delegate_key_hex: &str) -> Result<Ed25519KeyPair, String> {
 }
 
 /// Server-mode recall: POST /api/recall with a delegate-signed request.
+///
+/// `account_id` is the target group's MemWalAccount, chosen per-request — the
+/// enclave's stable delegate key must be authorized on it. This is what makes
+/// the enclave multi-tenant: one key, many groups.
 pub async fn recall(
     cfg: &MemwalConfig,
+    account_id: &str,
     namespace: &str,
     query: &str,
     limit: u32,
@@ -130,7 +134,7 @@ pub async fn recall(
 
     let message = format!(
         "{}.{}.{}.{}.{}.{}",
-        timestamp, "POST", path, body_sha256, nonce, cfg.account_id
+        timestamp, "POST", path, body_sha256, nonce, account_id
     );
 
     let kp = keypair(&cfg.delegate_key_hex)?;
@@ -147,7 +151,7 @@ pub async fn recall(
         .header("x-signature", sig_hex)
         .header("x-timestamp", &timestamp)
         .header("x-nonce", &nonce)
-        .header("x-account-id", &cfg.account_id)
+        .header("x-account-id", account_id)
         .body(body_str)
         .send()
         .await
