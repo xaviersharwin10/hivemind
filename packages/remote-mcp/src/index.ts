@@ -28,10 +28,14 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { bcs } from "@mysten/bcs";
 import * as ed from "@noble/ed25519";
 import { z } from "zod";
-import { authEnabled, handleWellKnown, requireAuth } from "./auth.js";
+import { authEnabled, handleWellKnown, requireAuth, verifySessionSubject } from "./auth.js";
+import { verifyBindToken, setBinding, getBinding } from "./binding.js";
 
 const ENCLAVE_URL = (process.env.ENCLAVE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+// Local dev fallback (auth OFF): a single group. With auth ON the group comes
+// from the caller's Stytch binding, never these env vars.
 const NAMESPACE = process.env.HIVEMIND_NAMESPACE ?? "";
+const ACCOUNT_ID = process.env.HIVEMIND_ACCOUNT_ID ?? "";
 const PORT = Number(process.env.PORT ?? 8787);
 // In production this MUST be the enclave key registered ON-CHAIN (from the
 // attestation), not whatever a server claims. For the local loop we fall back
@@ -95,18 +99,30 @@ async function verifyAttestation(out: EnclaveRecall): Promise<boolean> {
   }
 }
 
-async function enclaveRecall(namespace: string, query: string, limit: number): Promise<EnclaveRecall> {
+async function enclaveRecall(
+  accountId: string,
+  namespace: string,
+  query: string,
+  limit: number,
+): Promise<EnclaveRecall> {
   const r = await fetch(`${ENCLAVE_URL}/process_data`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ payload: { namespace, query, limit } }),
+    body: JSON.stringify({ payload: { account_id: accountId, namespace, query, limit } }),
   });
   if (!r.ok) throw new Error(`enclave ${r.status}: ${await r.text()}`);
   return (await r.json()) as EnclaveRecall;
 }
 
-/** A fresh MCP server with the recall tool wired to the enclave. */
-function makeMcpServer(): McpServer {
+/**
+ * A fresh MCP server with the recall tool wired to the enclave.
+ *
+ * `subject` is the authenticated Stytch user id (when auth is on). The target
+ * group is resolved from that user's binding — never from the request — so each
+ * caller can only reach their own group. With auth off, falls back to the local
+ * dev env group.
+ */
+function makeMcpServer(subject?: string): McpServer {
   const server = new McpServer({ name: "hivemind-remote", version: "0.1.0" });
 
   server.registerTool(
@@ -122,10 +138,50 @@ function makeMcpServer(): McpServer {
       },
     },
     async ({ query, limit }) => {
-      if (!NAMESPACE) {
-        return { content: [{ type: "text", text: "Server misconfigured: HIVEMIND_NAMESPACE is not set." }] };
+      // Resolve the caller's group from their verified identity (auth on) or the
+      // local dev env (auth off). The user never supplies the group.
+      let accountId: string;
+      let namespace: string;
+      if (authEnabled) {
+        if (!subject) {
+          return { isError: true, content: [{ type: "text", text: "Not authenticated." }] };
+        }
+        const binding = await getBinding(subject);
+        if (!binding) {
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  "This Claude account isn't linked to a HiveMind group yet. In your group's Telegram, run /connect_claude and open the bind link, then try again.",
+              },
+            ],
+          };
+        }
+        accountId = binding.accountId;
+        namespace = binding.namespace;
+      } else {
+        if (!NAMESPACE || !ACCOUNT_ID) {
+          return { content: [{ type: "text", text: "Server misconfigured: set HIVEMIND_ACCOUNT_ID and HIVEMIND_NAMESPACE (local dev)." }] };
+        }
+        accountId = ACCOUNT_ID;
+        namespace = NAMESPACE;
       }
-      const out = await enclaveRecall(NAMESPACE, query, limit ?? 5);
+
+      let out: EnclaveRecall;
+      try {
+        out = await enclaveRecall(accountId, namespace, query, limit ?? 5);
+      } catch (e) {
+        // Enclave down / unreachable → graceful message (Path A local MCP is unaffected).
+        return {
+          content: [
+            {
+              type: "text",
+              text: `HiveMind's confidential memory service is temporarily unavailable. Please try again shortly. (${e instanceof Error ? e.message : String(e)})`,
+            },
+          ],
+        };
+      }
 
       // Trust enforcement: verify the enclave actually signed this result before
       // surfacing it. A mismatch means the response didn't come from the attested
@@ -183,6 +239,7 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<voi
   // bootstraps claude.ai's OAuth + Dynamic Client Registration flow.
   const auth = await requireAuth(req, res);
   if (auth === "challenged") return;
+  const subject = auth ? auth.subject : undefined;
 
   const sessionId = req.headers["mcp-session-id"] as string | undefined;
   const body = req.method === "POST" ? await readBody(req) : undefined;
@@ -201,7 +258,7 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<voi
       transport.onclose = () => {
         if (transport?.sessionId) delete transports[transport.sessionId];
       };
-      await makeMcpServer().connect(transport);
+      await makeMcpServer(subject).connect(transport);
     } else {
       res.writeHead(400, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "No valid session; send initialize first." }, id: null }));
@@ -212,10 +269,54 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<voi
   await transport.handleRequest(req, res, body);
 }
 
+/**
+ * POST /bind { bindToken, sessionJwt } — links the logged-in Stytch user to the
+ * group encoded in the bot-signed bind token. Called from the bind page (another
+ * origin), so CORS is open. The binding is written to trusted_metadata, which the
+ * user cannot forge — the namespace they recall from is fixed here, by identity.
+ */
+async function handleBind(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  if (req.method === "OPTIONS") {
+    res.writeHead(204).end();
+    return;
+  }
+  if (req.method !== "POST") {
+    res.writeHead(405, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "method not allowed" }));
+    return;
+  }
+  const body = (await readBody(req)) as { bindToken?: string; sessionJwt?: string } | undefined;
+  const subject = await verifySessionSubject(body?.sessionJwt ?? "");
+  if (!subject) {
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "invalid or missing Stytch session" }));
+    return;
+  }
+  const binding = verifyBindToken(body?.bindToken ?? "");
+  if (!binding) {
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "invalid or expired bind token" }));
+    return;
+  }
+  await setBinding(subject, binding);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ ok: true, namespace: binding.namespace }));
+}
+
 const httpServer = createServer((req, res) => {
   if (req.method === "GET" && req.url === "/") {
     res.writeHead(200, { "Content-Type": "text/plain" });
     res.end("hivemind-remote-mcp ok");
+    return;
+  }
+  if (req.url?.startsWith("/bind")) {
+    handleBind(req, res).catch((e) => {
+      if (!res.headersSent) res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: String(e) }));
+    });
     return;
   }
   // OAuth discovery documents (served only when STYTCH_DOMAIN is configured).

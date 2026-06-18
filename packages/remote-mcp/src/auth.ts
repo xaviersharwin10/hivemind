@@ -137,6 +137,23 @@ export async function requireAuth(
   }
 }
 
+/**
+ * Verify a Stytch *session* JWT (from the consent/bind page) and return its
+ * subject (the Stytch user id), or null. Used by the /bind endpoint to know who
+ * is redeeming a bind token. Signature-only against the project JWKS — only this
+ * project's tokens validate — so we don't constrain issuer/audience (session and
+ * access tokens differ there).
+ */
+export async function verifySessionSubject(token: string): Promise<string | null> {
+  if (!authEnabled || !token) return null;
+  try {
+    const { payload } = await jwtVerify(token, jwks!);
+    return payload.sub ? String(payload.sub) : null;
+  } catch {
+    return null;
+  }
+}
+
 function challenge(res: ServerResponse, detail: string): void {
   res.writeHead(401, {
     "Content-Type": "application/json",
