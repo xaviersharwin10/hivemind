@@ -49,7 +49,11 @@ function protectedResourceMetadata() {
     resource: SERVER_URL,
     authorization_servers: [STYTCH_DOMAIN],
     bearer_methods_supported: ["header"],
-    scopes_supported: ["openid", "profile", "recall"],
+    // Only advertise scopes the Stytch authorization server actually supports —
+    // a custom scope here makes claude.ai request it and Stytch rejects it
+    // ("invalid scope"). Authorization to recall is gated by a valid token, not
+    // by a custom scope.
+    scopes_supported: ["openid", "profile", "email", "offline_access"],
   };
 }
 
