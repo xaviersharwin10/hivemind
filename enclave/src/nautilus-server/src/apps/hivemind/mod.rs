@@ -15,6 +15,12 @@
 // Seal decryption are layered in next (see todo list).
 
 mod memwal;
+pub mod seal;
+mod seal_types;
+
+// Re-export so main.rs can reach it as `app::spawn_host_init_server` (parity with
+// the seal-example wiring).
+pub use seal::spawn_host_init_server;
 
 use crate::common::IntentMessage;
 use crate::common::{to_signed_response, ProcessDataRequest, ProcessedDataResponse};
@@ -32,6 +38,9 @@ use std::sync::Arc;
 #[repr(u8)]
 pub enum IntentScope {
     Recall = 0,
+    /// Used by the Seal bootstrap: the enclave signs its wallet pubkey so the
+    /// seal_approve policy can verify the request came from this attested enclave.
+    WalletPK = 1,
 }
 
 /// Inner type T for ProcessDataRequest<T> — a recall query against one group.
@@ -79,10 +88,20 @@ pub async fn process_data(
     let payload = request.payload;
     let limit = payload.limit.unwrap_or(5);
 
-    // The enclave's stable delegate credentials (env for the local debug loop;
-    // Seal-provisioned in production). Server-mode recall returns already-decrypted
-    // text. The target group is `payload.account_id`, set from the verified caller.
-    let cfg = MemwalConfig::from_env().map_err(EnclaveError::GenericError)?;
+    // The enclave's stable delegate credentials. In production the delegate key is
+    // Seal-provisioned (attestation-gated) into enclave memory at bootstrap and is
+    // preferred here; the env var is only the local-debug fallback. Server-mode
+    // recall returns already-decrypted text. The target group is
+    // `payload.account_id`, set from the verified caller.
+    let mut cfg = MemwalConfig::from_env().map_err(EnclaveError::GenericError)?;
+    if let Some(key) = seal::provisioned_delegate_key().await {
+        cfg.delegate_key_hex = key;
+    }
+    if cfg.delegate_key_hex.is_empty() {
+        return Err(EnclaveError::GenericError(
+            "enclave delegate key not provisioned (run the Seal bootstrap or set HIVEMIND_DELEGATE_KEY)".to_string(),
+        ));
+    }
     let result = memwal::recall(
         &cfg,
         &payload.account_id,

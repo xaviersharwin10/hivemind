@@ -37,6 +37,6 @@ seal-sdk = { git = "https://github.com/MystenLabs/seal", rev = "cfb29d2e08ff1ae3
 weather-example = []
 twitter-example = ["regex"]
 seal-example = ["sui-crypto", "sui-sdk-types", "seal-sdk"]
-# HiveMind confidential recall app. Starts dependency-light (scaffold); Seal
-# decryption deps are added when the in-enclave decrypt path lands.
-hivemind = []
+# HiveMind confidential recall app. Uses Seal (two-phase, attestation-gated) to
+# provision the enclave delegate key into enclave memory at bootstrap.
+hivemind = ["sui-crypto", "sui-sdk-types", "seal-sdk"]

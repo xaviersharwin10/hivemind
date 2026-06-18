@@ -61,11 +61,12 @@ impl MemwalConfig {
                 delegate_key_hex: s.delegate_key,
             });
         }
+        // Delegate key is optional here: in production it's Seal-provisioned at
+        // bootstrap (see seal.rs) and injected by the caller. Empty = "not from env".
         Ok(MemwalConfig {
             server_url: std::env::var("MEMWAL_SERVER_URL")
                 .unwrap_or_else(|_| DEFAULT_SERVER_URL.to_string()),
-            delegate_key_hex: std::env::var("HIVEMIND_DELEGATE_KEY")
-                .map_err(|_| "HIVEMIND_DELEGATE_KEY not set".to_string())?,
+            delegate_key_hex: std::env::var("HIVEMIND_DELEGATE_KEY").unwrap_or_default(),
         })
     }
 }

@@ -37,6 +37,13 @@ async fn main() -> Result<()> {
         nautilus_server::app::spawn_host_init_server(state.clone()).await?;
     }
 
+    // HiveMind: same host-only Seal bootstrap server (provisions the enclave
+    // delegate key, attestation-gated). Non-fatal if it can't bind.
+    #[cfg(feature = "hivemind")]
+    {
+        nautilus_server::app::spawn_host_init_server(state.clone()).await?;
+    }
+
     // Define your own restricted CORS policy here if needed.
     let cors = CorsLayer::new().allow_methods(Any).allow_headers(Any);
 
