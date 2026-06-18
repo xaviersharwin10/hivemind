@@ -3,5 +3,8 @@
   "framework": "vite",
   "buildCommand": "pnpm run build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/oauth/authorize", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/oauth/authorize", "destination": "/index.html" },
+    { "source": "/bind", "destination": "/index.html" }
+  ]
 }

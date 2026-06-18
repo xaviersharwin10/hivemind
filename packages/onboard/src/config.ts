@@ -9,4 +9,6 @@ export const config = {
   // Stytch Connected Apps — powers the /oauth/authorize consent page that
   // claude.ai's connector redirects to. Empty token = page shows a setup notice.
   stytchPublicToken: import.meta.env.VITE_STYTCH_PUBLIC_TOKEN ?? "",
+  // Hosted remote MCP base URL — the /bind page POSTs the bind token here.
+  remoteMcpUrl: import.meta.env.VITE_REMOTE_MCP_URL ?? "",
 } as const;
