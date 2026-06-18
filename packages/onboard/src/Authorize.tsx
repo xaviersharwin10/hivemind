@@ -23,18 +23,20 @@ import {
   useStytchUser,
   createStytchUIClient,
   Products,
+  OTPMethods,
 } from "@stytch/react";
 import { config } from "./config";
 
 const stytch = config.stytchPublicToken ? createStytchUIClient(config.stytchPublicToken) : null;
 
-const REDIRECT = typeof window !== "undefined" ? `${window.location.origin}/oauth/authorize` : "";
-
+// Email one-time passcode (OTP): the user enters a 6-digit code inline on this
+// page — no email redirect — so the OAuth request params and the session are
+// never lost across a round-trip (which broke the magic-link flow).
 const loginConfig = {
-  products: [Products.emailMagicLinks],
-  emailMagicLinksOptions: {
-    loginRedirectURL: REDIRECT,
-    signupRedirectURL: REDIRECT,
+  products: [Products.otp],
+  otpOptions: {
+    methods: [OTPMethods.Email],
+    expirationMinutes: 10,
   },
 };
 
