@@ -44,6 +44,7 @@ import {
 } from "@hivemind/core";
 import { OnboardServer, type ConnectInfo } from "./server";
 import { makeArtifactRecorder } from "./onchain";
+import { signBindToken } from "./bindtoken";
 
 // Some networks (incl. this sandbox) have broken IPv6 egress, so Node hangs trying
 // the AAAA address for api.telegram.org. Force IPv4 for native fetch (file downloads,
@@ -78,6 +79,10 @@ if (!BOT_TOKEN) {
 const network = (env.SUI_NETWORK ?? "testnet") as SuiNetwork;
 const serverUrl = env.MEMWAL_SERVER_URL ?? MEMWAL[network].relayerUrl;
 const onboardUrl = env.ONBOARD_URL ?? "http://localhost:5173";
+// Path B (claude.ai TEE connector): the hosted remote MCP URL members paste into
+// claude.ai, and the HMAC secret that signs bind tokens (shared with the remote MCP).
+const remoteMcpUrl = env.REMOTE_MCP_URL ?? "";
+const bindSecret = env.BIND_SIGNING_SECRET ?? "";
 // Hosts like Railway/Render inject the public port as PORT; honour it first so the
 // onboarding API is reachable. Falls back to BOT_API_PORT, then 8080 for local dev.
 const apiPort = Number(env.PORT ?? env.BOT_API_PORT ?? "8080");
@@ -383,6 +388,30 @@ bot.command("connect", async (ctx) => {
       `1️⃣ Start a private chat with me first (open my profile → *Start*) so I can DM you your key.\n` +
       `2️⃣ The group **owner** approves here: ${link}\n\n` +
       `Once approved, I'll DM you your key + setup config.`,
+    { parse_mode: "Markdown" },
+  );
+});
+
+// --- /connect_claude → link a member's claude.ai (hosted TEE path) to this group ---
+bot.command("connect_claude", async (ctx) => {
+  const rec = await resolveGroup(ctx);
+  if (!rec) return;
+  if (!bindSecret || !remoteMcpUrl) {
+    return ctx.reply(
+      "⚠️ The claude.ai connector isn't enabled on this bot yet (missing REMOTE_MCP_URL / BIND_SIGNING_SECRET).\n" +
+        "You can still use the local path — run /connect.",
+    );
+  }
+  // Bind token proves this user belongs to THIS group; the remote MCP writes it
+  // into their Stytch identity so claude.ai recalls only this group's memory.
+  const token = signBindToken({ accountId: rec.accountId, namespace: rec.namespace, network }, bindSecret);
+  const bindLink = `${onboardUrl}/bind?t=${encodeURIComponent(token)}`;
+  await ctx.reply(
+    `🤖 *Connect this group's memory to claude.ai*\n\n` +
+      `1️⃣ Open this link and sign in — it links your Claude account to *this group*:\n${bindLink}\n\n` +
+      `2️⃣ In claude.ai: *Settings → Connectors → Add custom connector*, and paste:\n\`${remoteMcpUrl}\`\n\n` +
+      `Then ask Claude to "recall what the group decided". Your memory is read inside a secure enclave — the key never leaves it.\n\n` +
+      `_Prefer self-custody / Claude Desktop? Use /connect instead._`,
     { parse_mode: "Markdown" },
   );
 });
