@@ -65,3 +65,16 @@ export const DEFAULT_NAMESPACE = "main";
 
 /** Contract hard limit: max delegate keys per MemWalAccount. */
 export const MAX_DELEGATE_KEYS = 20;
+
+/**
+ * The hosted enclave's STABLE delegate identity (Path B / claude.ai TEE).
+ *
+ * One identity for the whole enclave: groups that enable claude.ai authorize this
+ * address on their MemWalAccount (via add_delegate_key), so the attested enclave
+ * can recall their memory. The private key lives ONLY inside the enclave
+ * (Seal-provisioned); only the public key/address is public here.
+ */
+export const ENCLAVE_DELEGATE = {
+  address: "0x0aba86be9899f0f1c192367fee04763acd903bab78b89c6a2bd596ce5842b278",
+  publicKeyHex: "171bf061991b7657c0921b594ab723f8aa19bb78840bb16d143b06031691882f",
+} as const;

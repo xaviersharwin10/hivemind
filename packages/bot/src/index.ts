@@ -36,6 +36,7 @@ import {
   readGroup,
   MEMWAL,
   MAX_DELEGATE_KEYS,
+  ENCLAVE_DELEGATE,
   generateDelegateKey,
   addressFromEd25519PublicKey,
   hexToBytes,
@@ -208,6 +209,21 @@ const onboard = new OnboardServer(
   async (info: ConnectInfo) => {
     const rec = await registry.get(info.chatId);
     if (!rec) return;
+
+    // Enclave-enable: the owner just authorized the shared enclave delegate for
+    // this group (claude.ai TEE). No personal key to deliver — just confirm.
+    if (info.enclaveEnable) {
+      groupCache.delete(info.chatId);
+      await bot.telegram
+        .sendMessage(
+          info.chatId,
+          `🤖 *claude.ai is now enabled for this group.*\nMembers can run /connect_claude to link their Claude account.`,
+          { parse_mode: "Markdown" },
+        )
+        .catch(() => {});
+      return;
+    }
+
     const suiAddress = addressFromEd25519PublicKey(hexToBytes(info.memberPubKeyHex));
     await registry.addMember(info.chatId, { label: info.label, suiAddress, addedAt: Date.now() });
     groupCache.delete(info.chatId); // member count changed → refresh cache
@@ -388,6 +404,33 @@ bot.command("connect", async (ctx) => {
       `1️⃣ Start a private chat with me first (open my profile → *Start*) so I can DM you your key.\n` +
       `2️⃣ The group **owner** approves here: ${link}\n\n` +
       `Once approved, I'll DM you your key + setup config.`,
+    { parse_mode: "Markdown" },
+  );
+});
+
+// --- /enable_claude → owner authorizes the shared enclave delegate (one-time/group) ---
+bot.command("enable_claude", async (ctx) => {
+  const rec = await resolveGroup(ctx);
+  if (!rec) return;
+  // Reuse the connect approval SPA, but the key being authorized is the shared
+  // enclave delegate (public address) — no personal key is generated/delivered.
+  const token = onboard.issueConnectToken({
+    chatId: String(ctx.chat.id),
+    requesterUserId: ctx.from.id,
+    requesterName: ctx.from.first_name ?? "owner",
+    memberPrivKey: "",
+    memberPubKeyHex: ENCLAVE_DELEGATE.publicKeyHex,
+    label: "claude-enclave",
+    accountId: rec.accountId,
+    enclaveEnable: true,
+  });
+  const link = `${onboardUrl}/#connect=${token}`;
+  await ctx.reply(
+    `🔐 *Enable claude.ai for this group* (one-time, owner only)\n\n` +
+      `This authorizes HiveMind's secure enclave to read *this group's* memory on members' behalf — ` +
+      `the enclave's key is hardware-sealed; the operator can't read it.\n\n` +
+      `👉 Group **owner**, approve here: ${link}\n\n` +
+      `After that, members run /connect_claude.`,
     { parse_mode: "Markdown" },
   );
 });

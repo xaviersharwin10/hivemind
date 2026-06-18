@@ -28,6 +28,9 @@ export interface ConnectInfo {
   label: string;
   accountId: string;
   createdAt: number;
+  /** True when this approval authorizes the shared ENCLAVE delegate (claude.ai
+   *  TEE), not a personal member key — no private key is delivered. */
+  enclaveEnable?: boolean;
 }
 
 export interface SponsorConfig {
