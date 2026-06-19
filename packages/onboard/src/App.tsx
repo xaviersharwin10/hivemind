@@ -17,6 +17,20 @@ import {
 } from "@hivemind/core/browser";
 import { config } from "./config";
 
+/** Fetch the bot's deterministic delegate for this chat (gated by the onboarding
+ *  token). Returns null if the backend has no master seed → caller uses a random key. */
+async function fetchBotDelegate(
+  chatId: string,
+  token: string,
+): Promise<{ privateKey: string; publicKey: Uint8Array; suiAddress: string } | null> {
+  const r = await fetch(
+    `${config.botApiUrl}/bot-delegate?token=${encodeURIComponent(token)}&chatId=${encodeURIComponent(chatId)}`,
+  );
+  if (!r.ok) return null;
+  const d = (await r.json()) as { privateKey: string; publicKeyHex: string; suiAddress: string };
+  return { privateKey: d.privateKey, publicKey: hexToBytes(d.publicKeyHex), suiAddress: d.suiAddress };
+}
+
 type Mode = "onboard" | "connect";
 type Phase = "idle" | "working" | "done" | "error";
 type StepState = "pending" | "active" | "done";
@@ -129,7 +143,12 @@ export function App() {
       const owner = await signIn();
       mark("auth", "done");
 
-      const botDelegate = await generateDelegateKey();
+      // Prefer the bot's DETERMINISTIC delegate (derived from its master seed +
+      // this chat id) so the bot can rebuild it from chain after any restart — no
+      // stored state, no re-/setup. Fall back to a random key if the backend has
+      // no master seed configured.
+      const botDelegate = await fetchBotDelegate(chatId, token).catch(() => null)
+        ?? await generateDelegateKey();
       const ctx = sponsorCtx(owner);
 
       mark("vault", "active");

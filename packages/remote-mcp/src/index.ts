@@ -29,7 +29,7 @@ import { bcs } from "@mysten/bcs";
 import * as ed from "@noble/ed25519";
 import { z } from "zod";
 import { authEnabled, handleWellKnown, requireAuth, verifySessionSubject } from "./auth.js";
-import { verifyBindToken, setBinding, getBinding } from "./binding.js";
+import { verifyBindToken, addBinding, getBindings, type Binding } from "./binding.js";
 
 const ENCLAVE_URL = (process.env.ENCLAVE_URL ?? "http://localhost:3000").replace(/\/$/, "");
 // Local dev fallback (auth OFF): a single group. With auth ON the group comes
@@ -135,19 +135,23 @@ function makeMcpServer(subject?: string): McpServer {
       inputSchema: {
         query: z.string().describe("What to look for, in plain language"),
         limit: z.number().int().min(1).max(20).optional().describe("Max results (default 5)"),
+        group: z
+          .string()
+          .optional()
+          .describe("Optional: restrict to one group by name (label or namespace). Omit to search all your groups."),
       },
     },
-    async ({ query, limit }) => {
-      // Resolve the caller's group from their verified identity (auth on) or the
-      // local dev env (auth off). The user never supplies the group.
-      let accountId: string;
-      let namespace: string;
+    async ({ query, limit, group }) => {
+      // Resolve the caller's group(s) from their verified identity (auth on) or the
+      // local dev env (auth off). The user never supplies account ids — only an
+      // optional group name to filter the groups they're already bound to.
+      let groups: Binding[];
       if (authEnabled) {
         if (!subject) {
           return { isError: true, content: [{ type: "text", text: "Not authenticated." }] };
         }
-        const binding = await getBinding(subject);
-        if (!binding) {
+        groups = await getBindings(subject);
+        if (groups.length === 0) {
           return {
             content: [
               {
@@ -158,56 +162,79 @@ function makeMcpServer(subject?: string): McpServer {
             ],
           };
         }
-        accountId = binding.accountId;
-        namespace = binding.namespace;
+        if (group) {
+          const want = group.toLowerCase();
+          const filtered = groups.filter(
+            (g) => (g.label ?? g.namespace).toLowerCase() === want || g.namespace.toLowerCase() === want,
+          );
+          if (filtered.length === 0) {
+            const names = groups.map((g) => g.label ?? g.namespace).join(", ");
+            return { content: [{ type: "text", text: `No bound group named "${group}". Your groups: ${names}.` }] };
+          }
+          groups = filtered;
+        }
       } else {
         if (!NAMESPACE || !ACCOUNT_ID) {
           return { content: [{ type: "text", text: "Server misconfigured: set HIVEMIND_ACCOUNT_ID and HIVEMIND_NAMESPACE (local dev)." }] };
         }
-        accountId = ACCOUNT_ID;
-        namespace = NAMESPACE;
+        groups = [{ accountId: ACCOUNT_ID, namespace: NAMESPACE, network: "testnet", label: NAMESPACE }];
       }
 
-      let out: EnclaveRecall;
-      try {
-        out = await enclaveRecall(accountId, namespace, query, limit ?? 5);
-      } catch (e) {
-        // Enclave down / unreachable → graceful message (Path A local MCP is unaffected).
+      // Recall every (selected) group in parallel; the enclave attests each result.
+      const multi = groups.length > 1;
+      const perGroup = await Promise.all(
+        groups.map(async (g) => {
+          try {
+            const out = await enclaveRecall(g.accountId, g.namespace, query, limit ?? 5);
+            if (!(await verifyAttestation(out))) return { g, error: "attestation_failed" as const };
+            return { g, out };
+          } catch (e) {
+            return { g, error: e instanceof Error ? e.message : String(e) };
+          }
+        }),
+      );
+
+      // If every group failed to reach the enclave, surface the unavailable message.
+      if (perGroup.every((r) => "error" in r)) {
+        const anyAttestFail = perGroup.some((r) => r.error === "attestation_failed");
+        if (anyAttestFail) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: "⚠ Enclave attestation FAILED — refusing to return unverified memory." }],
+          };
+        }
         return {
           content: [
             {
               type: "text",
-              text: `HiveMind's confidential memory service is temporarily unavailable. Please try again shortly. (${e instanceof Error ? e.message : String(e)})`,
+              text: `HiveMind's confidential memory service is temporarily unavailable. Please try again shortly. (${(perGroup[0] as { error: string }).error})`,
             },
           ],
         };
       }
 
-      // Trust enforcement: verify the enclave actually signed this result before
-      // surfacing it. A mismatch means the response didn't come from the attested
-      // enclave (tampered/forged) — refuse it.
-      const verified = await verifyAttestation(out);
-      if (!verified) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: "⚠ Enclave attestation FAILED — the recall response was not validly signed by the attested HiveMind enclave. Refusing to return unverified memory.",
-            },
-          ],
-        };
+      const sections: string[] = [];
+      let lastSig = "";
+      for (const r of perGroup) {
+        if ("error" in r) continue;
+        const hits = r.out.response.data.hits;
+        lastSig = r.out.signature;
+        const label = r.g.label ?? r.g.namespace;
+        if (hits.length === 0) {
+          if (multi) sections.push(`### ${label}\n(no relevant memory)`);
+          continue;
+        }
+        const body = hits
+          .map((h, i) => `${i + 1}. (relevance ${(h.relevance_bps / 10000).toFixed(2)}) ${h.text}`)
+          .join("\n");
+        sections.push(multi ? `### ${label}\n${body}` : body);
       }
 
-      const hits = out.response.data.hits;
-      if (hits.length === 0) {
+      if (sections.length === 0 || sections.every((s) => s.endsWith("(no relevant memory)"))) {
         return { content: [{ type: "text", text: "No relevant group memory found." }] };
       }
-      const body = hits
-        .map((h, i) => `${i + 1}. (relevance ${(h.relevance_bps / 10000).toFixed(2)}) ${h.text}`)
-        .join("\n");
-      const trust = `\n\n✓ attested by enclave (sig ${out.signature.slice(0, 16)}…, verified)`;
-      return { content: [{ type: "text", text: body + trust }] };
+      const trust = `\n\n✓ attested by enclave (sig ${lastSig.slice(0, 16)}…, verified)`;
+      return { content: [{ type: "text", text: sections.join("\n\n") + trust }] };
     },
   );
 
@@ -301,9 +328,10 @@ async function handleBind(req: IncomingMessage, res: ServerResponse): Promise<vo
     res.end(JSON.stringify({ error: "invalid or expired bind token" }));
     return;
   }
-  await setBinding(subject, binding);
+  await addBinding(subject, binding);
+  const groups = await getBindings(subject);
   res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ ok: true, namespace: binding.namespace }));
+  res.end(JSON.stringify({ ok: true, namespace: binding.namespace, groups: groups.length }));
 }
 
 const httpServer = createServer((req, res) => {

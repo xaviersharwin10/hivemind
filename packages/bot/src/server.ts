@@ -55,6 +55,11 @@ export class OnboardServer {
     private readonly sponsor: SponsorConfig,
     /** Flow 3: called after the owner approves a member's delegate; delivers the key. */
     private readonly onConnectComplete: (info: ConnectInfo) => Promise<void>,
+    /** Deterministic bot delegate for a chat (null if no master seed configured).
+     *  The SPA fetches the derived key to authorize that exact address on-chain. */
+    private readonly botDelegateFor?: (
+      chatId: string,
+    ) => { privateKey: string; publicKeyHex: string; suiAddress: string } | null,
   ) {
     if (sponsor.apiKey) this.enoki = new EnokiClient({ apiKey: sponsor.apiKey });
   }
@@ -125,6 +130,20 @@ export class OnboardServer {
       // Enoki gas-station sponsorship (browser → here → Enoki).
       if (req.method === "POST" && req.url === "/sponsor") return this.sponsorCreate(req, res);
       if (req.method === "POST" && req.url === "/sponsor/execute") return this.sponsorExecute(req, res);
+
+      // Deterministic onboarding: SPA fetches the bot's derived delegate (gated by
+      // the one-time onboarding token) so it can authorize that exact address on-chain.
+      if (req.method === "GET" && req.url?.startsWith("/bot-delegate")) {
+        const q = new URL(req.url, "http://x").searchParams;
+        const token = q.get("token") ?? "";
+        const pend = this.pending.get(token);
+        if (!pend || Date.now() - pend.createdAt > TOKEN_TTL_MS) {
+          return json(res, 404, { error: "Invalid or expired onboarding token." });
+        }
+        const d = this.botDelegateFor?.(pend.chatId);
+        if (!d) return json(res, 501, { error: "Deterministic delegates not enabled (no BOT_MASTER_SEED)." });
+        return json(res, 200, { privateKey: d.privateKey, publicKeyHex: d.publicKeyHex, suiAddress: d.suiAddress });
+      }
 
       // Flow 3: approver SPA fetches what to add; then reports completion.
       if (req.method === "GET" && req.url?.startsWith("/connect/info")) {

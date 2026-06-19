@@ -15,6 +15,8 @@ export interface BindPayload {
   accountId: string;
   namespace: string;
   network: string;
+  /** Friendly group name (e.g. the Telegram chat title) for multi-group display. */
+  label?: string;
 }
 
 const DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 min

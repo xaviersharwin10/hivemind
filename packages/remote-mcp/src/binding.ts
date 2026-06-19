@@ -32,6 +32,9 @@ export interface Binding {
   accountId: string;
   namespace: string;
   network: string;
+  /** Human label for the group (defaults to the namespace). Used to disambiguate
+   *  results when a user is bound to multiple groups. */
+  label?: string;
 }
 
 /**
@@ -56,7 +59,12 @@ export function verifyBindToken(token: string): Binding | null {
     const d = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
     if (typeof d.exp === "number" && Date.now() > d.exp) return null;
     if (!d.accountId || !d.namespace || !d.network) return null;
-    return { accountId: String(d.accountId), namespace: String(d.namespace), network: String(d.network) };
+    return {
+      accountId: String(d.accountId),
+      namespace: String(d.namespace),
+      network: String(d.network),
+      label: d.label ? String(d.label) : String(d.namespace),
+    };
   } catch {
     return null;
   }
@@ -66,33 +74,57 @@ function authHeader(): string {
   return "Basic " + Buffer.from(`${PROJECT_ID}:${PROJECT_SECRET}`).toString("base64");
 }
 
-/** Write the group binding to the user's Stytch trusted_metadata (backend-only). */
-export async function setBinding(userId: string, b: Binding): Promise<void> {
-  if (!PROJECT_SECRET) throw new Error("STYTCH_PROJECT_SECRET not set");
-  const r = await fetch(`${API_BASE}/v1/users/${encodeURIComponent(userId)}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", Authorization: authHeader() },
-    body: JSON.stringify({ trusted_metadata: { hivemind: b } }),
-  });
-  if (!r.ok) throw new Error(`stytch set metadata ${r.status}: ${await r.text()}`);
-}
-
 // Small in-memory cache so recall doesn't hit the Stytch API every call.
-const cache = new Map<string, { b: Binding | null; exp: number }>();
+const cache = new Map<string, { groups: Binding[]; exp: number }>();
 const TTL_MS = 60_000;
 
-/** Read the group binding for an authenticated user, or null if not yet bound. */
-export async function getBinding(userId: string): Promise<Binding | null> {
+/** The stored shape: a list of groups. Tolerates the legacy single-object shape. */
+type StoredHivemind = { groups?: Binding[] } | Binding | undefined;
+
+function normalize(hm: StoredHivemind): Binding[] {
+  if (!hm) return [];
+  const list = "groups" in hm && Array.isArray(hm.groups) ? hm.groups : "accountId" in hm ? [hm] : [];
+  return list
+    .filter((b): b is Binding => !!b && !!b.accountId && !!b.namespace)
+    .map((b) => ({ accountId: b.accountId, namespace: b.namespace, network: b.network, label: b.label ?? b.namespace }));
+}
+
+async function fetchGroups(userId: string): Promise<Binding[]> {
   const hit = cache.get(userId);
-  if (hit && Date.now() < hit.exp) return hit.b;
-  if (!PROJECT_SECRET) return null;
+  if (hit && Date.now() < hit.exp) return hit.groups;
+  if (!PROJECT_SECRET) return [];
   const r = await fetch(`${API_BASE}/v1/users/${encodeURIComponent(userId)}`, {
     headers: { Authorization: authHeader() },
   });
-  if (!r.ok) return null; // don't cache hard failures
-  const j = (await r.json()) as { user?: { trusted_metadata?: { hivemind?: Binding } }; trusted_metadata?: { hivemind?: Binding } };
-  const hm = j?.user?.trusted_metadata?.hivemind ?? j?.trusted_metadata?.hivemind ?? null;
-  const b = hm ? { accountId: hm.accountId, namespace: hm.namespace, network: hm.network } : null;
-  cache.set(userId, { b, exp: Date.now() + TTL_MS });
-  return b;
+  if (!r.ok) return []; // don't cache hard failures
+  const j = (await r.json()) as { user?: { trusted_metadata?: { hivemind?: StoredHivemind } }; trusted_metadata?: { hivemind?: StoredHivemind } };
+  const hm = j?.user?.trusted_metadata?.hivemind ?? j?.trusted_metadata?.hivemind;
+  const groups = normalize(hm);
+  cache.set(userId, { groups, exp: Date.now() + TTL_MS });
+  return groups;
+}
+
+/** All groups an authenticated user is bound to (empty if none). */
+export async function getBindings(userId: string): Promise<Binding[]> {
+  return fetchGroups(userId);
+}
+
+/**
+ * Add a group to the user's Stytch trusted_metadata, preserving any existing
+ * bindings (so a user in multiple groups accumulates them). De-duped by
+ * accountId+namespace; re-binding refreshes the label.
+ */
+export async function addBinding(userId: string, b: Binding): Promise<void> {
+  if (!PROJECT_SECRET) throw new Error("STYTCH_PROJECT_SECRET not set");
+  const existing = await fetchGroups(userId);
+  const key = (x: Binding) => `${x.accountId}/${x.namespace}`;
+  const groups = existing.filter((g) => key(g) !== key(b));
+  groups.push({ accountId: b.accountId, namespace: b.namespace, network: b.network, label: b.label ?? b.namespace });
+  const r = await fetch(`${API_BASE}/v1/users/${encodeURIComponent(userId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: authHeader() },
+    body: JSON.stringify({ trusted_metadata: { hivemind: { groups } } }),
+  });
+  if (!r.ok) throw new Error(`stytch set metadata ${r.status}: ${await r.text()}`);
+  cache.set(userId, { groups, exp: Date.now() + TTL_MS });
 }

@@ -46,6 +46,7 @@ import {
 import { OnboardServer, type ConnectInfo } from "./server";
 import { makeArtifactRecorder } from "./onchain";
 import { signBindToken } from "./bindtoken";
+import { deriveBotDelegate } from "./delegate";
 
 // Some networks (incl. this sandbox) have broken IPv6 egress, so Node hangs trying
 // the AAAA address for api.telegram.org. Force IPv4 for native fetch (file downloads,
@@ -84,6 +85,11 @@ const onboardUrl = env.ONBOARD_URL ?? "http://localhost:5173";
 // claude.ai, and the HMAC secret that signs bind tokens (shared with the remote MCP).
 const remoteMcpUrl = env.REMOTE_MCP_URL ?? "";
 const bindSecret = env.BIND_SIGNING_SECRET ?? "";
+// Master seed for deterministic per-group bot delegate keys. With it set, the bot
+// rebuilds any group's delegate key from the on-chain registry alone — no local
+// state, so a restart never loses groups. Without it, falls back to local registry.
+const botMasterSeed = env.BOT_MASTER_SEED ?? "";
+const delegateFor = (groupId: string) => (botMasterSeed ? deriveBotDelegate(botMasterSeed, groupId) : null);
 // Hosts like Railway/Render inject the public port as PORT; honour it first so the
 // onboarding API is reachable. Falls back to BOT_API_PORT, then 8080 for local dev.
 const apiPort = Number(env.PORT ?? env.BOT_API_PORT ?? "8080");
@@ -118,17 +124,27 @@ async function groupFor(chatId: number): Promise<GroupRecord> {
 
   let rec: GroupRecord;
   if (onchain) {
-    // Chain is the source of truth; merge in the local secret.
-    if (!local?.botDelegateKey) throw new NotOnboarded();
+    // Chain is the source of truth. The bot's secret delegate key is either in
+    // local state, or — for deterministically-onboarded groups — re-derived from
+    // the master seed (and verified against the on-chain `writer`). The latter
+    // survives any restart with no stored state.
+    let botDelegateKey = local?.botDelegateKey;
+    if (!botDelegateKey) {
+      const derived = delegateFor(key);
+      if (derived && derived.suiAddress.toLowerCase() === onchain.writer.toLowerCase()) {
+        botDelegateKey = derived.privateKey;
+      }
+    }
+    if (!botDelegateKey) throw new NotOnboarded();
     rec = {
       groupId: key,
       ownerAddress: onchain.owner,
       accountId: onchain.memwalAccount,
-      botDelegateKey: local.botDelegateKey,
+      botDelegateKey,
       namespace: onchain.namespace,
       onchainGroupId: onchain.groupId,
-      members: local.members ?? [],
-      createdAt: local.createdAt ?? Date.now(),
+      members: local?.members ?? [],
+      createdAt: local?.createdAt ?? Date.now(),
     };
   } else if (local) {
     rec = local; // legacy group (pre on-chain registry) or RPC-down fallback
@@ -246,6 +262,7 @@ const onboard = new OnboardServer(
         .catch(() => {});
     }
   },
+  delegateFor,
 );
 
 const bytesToHex = (b: Uint8Array) => Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("");
@@ -448,7 +465,8 @@ bot.command("connect_claude", async (ctx) => {
   }
   // Bind token proves this user belongs to THIS group; the remote MCP writes it
   // into their Stytch identity so claude.ai recalls only this group's memory.
-  const token = signBindToken({ accountId: rec.accountId, namespace: rec.namespace, network }, bindSecret);
+  const label = ("title" in ctx.chat && ctx.chat.title) ? ctx.chat.title : rec.namespace;
+  const token = signBindToken({ accountId: rec.accountId, namespace: rec.namespace, network, label }, bindSecret);
   const bindLink = `${onboardUrl}/bind?t=${encodeURIComponent(token)}`;
   // Plain text (no parse_mode): the bind token + command names contain "_" which
   // Telegram's legacy Markdown parser treats as italic and rejects as unbalanced.

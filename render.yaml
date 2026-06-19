@@ -68,3 +68,7 @@ services:
         sync: false
       - key: BIND_SIGNING_SECRET
         sync: false
+      # Master seed for deterministic per-group bot delegate keys (so the bot
+      # rebuilds group state from chain after a restart — never re-/setup).
+      - key: BOT_MASTER_SEED
+        sync: false
