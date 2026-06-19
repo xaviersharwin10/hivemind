@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1340" height="880" viewBox="0 0 1340 880" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="aBlue"   markerWidth="11" markerHeight="11" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#38bdf8"/></marker>
+    <marker id="aPurple" markerWidth="11" markerHeight="11" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#c084fc"/></marker>
+    <marker id="aRed"    markerWidth="11" markerHeight="11" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#fb7185"/></marker>
+    <marker id="aGreen"  markerWidth="11" markerHeight="11" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#34d399"/></marker>
+    <marker id="aGold"   markerWidth="11" markerHeight="11" refX="8" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#f6c453"/></marker>
+  </defs>
+
+  <!-- uniform background -->
+  <rect x="0" y="0" width="1340" height="880" fill="#0b1220"/>
+
+  <!-- title + legend -->
+  <text x="670" y="30" text-anchor="middle" fill="#e2e8f0" font-size="20" font-weight="bold">HiveMind — one verifiable memory, two ways for AI to read it</text>
+  <text x="670" y="52" text-anchor="middle" fill="#7c8aa0" font-size="13">arrows = direction of the call / data flow &#160;·&#160; plaintext is only ever decrypted on your machine (Path A) or inside the attested enclave (Path B)</text>
+
+  <!-- column captions -->
+  <text x="230"  y="86" text-anchor="middle" fill="#fb7185" font-size="14" font-weight="bold">② PATH B — zero-install · claude.ai</text>
+  <text x="670"  y="86" text-anchor="middle" fill="#38bdf8" font-size="14" font-weight="bold">① CAPTURE — inside Telegram</text>
+  <text x="1110" y="86" text-anchor="middle" fill="#c084fc" font-size="14" font-weight="bold">② PATH A — self-custody · desktop</text>
+
+  <!-- ================= EDGES (drawn first, under boxes) ================= -->
+  <!-- Path B internal -->
+  <polyline points="230,164 230,206" fill="none" stroke="#fb7185" stroke-width="2.5" marker-end="url(#aRed)"/>
+  <polyline points="230,286 230,336" fill="none" stroke="#fb7185" stroke-width="2.5" marker-end="url(#aRed)"/>
+  <!-- Nautilus -> Memory (read & decrypt, in enclave) -->
+  <polyline points="380,384 405,384 405,540 410,540" fill="none" stroke="#fb7185" stroke-width="2.5" marker-end="url(#aRed)"/>
+  <!-- Capture internal + Bot -> Memory -->
+  <polyline points="670,164 670,206" fill="none" stroke="#38bdf8" stroke-width="2.5" marker-end="url(#aBlue)"/>
+  <polyline points="670,286 670,474" fill="none" stroke="#38bdf8" stroke-width="2.5" marker-end="url(#aBlue)"/>
+  <!-- Path A internal + LocalMCP -> Memory -->
+  <polyline points="1110,164 1110,206" fill="none" stroke="#c084fc" stroke-width="2.5" marker-end="url(#aPurple)"/>
+  <polyline points="1110,286 1110,540 936,540" fill="none" stroke="#c084fc" stroke-width="2.5" marker-end="url(#aPurple)"/>
+  <!-- Memory -> SUI -->
+  <polyline points="670,606 670,684" fill="none" stroke="#34d399" stroke-width="2.5" marker-end="url(#aGreen)"/>
+  <!-- SUI -> Nautilus (attests, dashed, upward) -->
+  <polyline points="230,684 230,432" fill="none" stroke="#f6c453" stroke-width="2.5" stroke-dasharray="6 5" marker-end="url(#aGold)"/>
+
+  <!-- ================= EDGE LABELS ================= -->
+  <g font-size="12.5">
+    <g><rect x="245" y="174" width="92"  height="22" rx="5" fill="#1e293b"/><text x="291" y="189" text-anchor="middle" fill="#e2e8f0">ask · OAuth</text></g>
+    <g><rect x="245" y="298" width="58"  height="22" rx="5" fill="#1e293b"/><text x="274" y="313" text-anchor="middle" fill="#e2e8f0">query</text></g>
+    <g><rect x="430" y="430" width="196" height="22" rx="5" fill="#1e293b"/><text x="528" y="445" text-anchor="middle" fill="#e2e8f0">read &amp; decrypt — in enclave</text></g>
+    <g><rect x="556" y="392" width="58"  height="22" rx="5" fill="#1e293b"/><text x="585" y="407" text-anchor="middle" fill="#e2e8f0">write</text></g>
+    <g><rect x="592" y="174" width="156" height="22" rx="5" fill="#1e293b"/><text x="670" y="189" text-anchor="middle" fill="#e2e8f0">@mention / share</text></g>
+    <g><rect x="1086" y="174" width="48"  height="22" rx="5" fill="#1e293b"/><text x="1110" y="189" text-anchor="middle" fill="#e2e8f0">ask</text></g>
+    <g><rect x="720" y="430" width="220" height="22" rx="5" fill="#1e293b"/><text x="830" y="445" text-anchor="middle" fill="#e2e8f0">read &amp; decrypt — on your machine</text></g>
+    <g><rect x="568" y="634" width="204" height="22" rx="5" fill="#1e293b"/><text x="670" y="649" text-anchor="middle" fill="#e2e8f0">anchored &amp; access-gated by Sui</text></g>
+    <g><rect x="150" y="544" width="150" height="22" rx="5" fill="#1e293b"/><text x="225" y="559" text-anchor="middle" fill="#fde68a">attests enclave key</text></g>
+  </g>
+
+  <!-- ================= BOXES ================= -->
+  <!-- Path B (red) -->
+  <g>
+    <rect x="80" y="100" width="300" height="64" rx="10" fill="#3a1020" stroke="#fb7185" stroke-width="2"/>
+    <text x="230" y="128" text-anchor="middle" fill="#ffe4e6" font-size="15" font-weight="bold">claude.ai</text>
+    <text x="230" y="149" text-anchor="middle" fill="#ffe4e6" font-size="13">Custom Connector</text>
+  </g>
+  <g>
+    <rect x="80" y="206" width="300" height="80" rx="10" fill="#3a1020" stroke="#fb7185" stroke-width="2"/>
+    <text x="230" y="234" text-anchor="middle" fill="#ffe4e6" font-size="15" font-weight="bold">Remote MCP</text>
+    <text x="230" y="256" text-anchor="middle" fill="#ffe4e6" font-size="12.5">Stytch OAuth · verifies</text>
+    <text x="230" y="273" text-anchor="middle" fill="#ffe4e6" font-size="12.5">attestation signature</text>
+  </g>
+  <g>
+    <rect x="80" y="336" width="300" height="96" rx="10" fill="#3a1020" stroke="#fb7185" stroke-width="2"/>
+    <text x="230" y="364" text-anchor="middle" fill="#ffe4e6" font-size="15" font-weight="bold">Nautilus TEE Enclave</text>
+    <text x="230" y="386" text-anchor="middle" fill="#ffe4e6" font-size="12.5">AWS Nitro</text>
+    <text x="230" y="408" text-anchor="middle" fill="#ffe4e6" font-size="12.5">holds key · decrypts ·</text>
+    <text x="230" y="424" text-anchor="middle" fill="#ffe4e6" font-size="12.5">enclave-signs result</text>
+  </g>
+
+  <!-- Capture (blue) -->
+  <g>
+    <rect x="520" y="100" width="300" height="64" rx="10" fill="#0e2436" stroke="#38bdf8" stroke-width="2"/>
+    <text x="670" y="128" text-anchor="middle" fill="#e0f2fe" font-size="15" font-weight="bold">Telegram Group</text>
+    <text x="670" y="149" text-anchor="middle" fill="#e0f2fe" font-size="13">decisions · files · links</text>
+  </g>
+  <g>
+    <rect x="520" y="206" width="300" height="80" rx="10" fill="#0e2436" stroke="#38bdf8" stroke-width="2"/>
+    <text x="670" y="238" text-anchor="middle" fill="#e0f2fe" font-size="15" font-weight="bold">HiveMind Bot</text>
+    <text x="670" y="262" text-anchor="middle" fill="#e0f2fe" font-size="12.5">captures · Seal-encrypts · signs</text>
+  </g>
+
+  <!-- Path A (purple) -->
+  <g>
+    <rect x="960" y="100" width="300" height="64" rx="10" fill="#241040" stroke="#c084fc" stroke-width="2"/>
+    <text x="1110" y="128" text-anchor="middle" fill="#f3e8ff" font-size="15" font-weight="bold">Claude Desktop · Cursor</text>
+    <text x="1110" y="149" text-anchor="middle" fill="#f3e8ff" font-size="13">any MCP desktop client</text>
+  </g>
+  <g>
+    <rect x="960" y="206" width="300" height="80" rx="10" fill="#241040" stroke="#c084fc" stroke-width="2"/>
+    <text x="1110" y="238" text-anchor="middle" fill="#f3e8ff" font-size="15" font-weight="bold">Local MCP</text>
+    <text x="1110" y="262" text-anchor="middle" fill="#f3e8ff" font-size="12.5">key stays on your machine</text>
+  </g>
+
+  <!-- Memory (green hub) -->
+  <g>
+    <rect x="410" y="474" width="520" height="132" rx="12" fill="#0f2a1c" stroke="#34d399" stroke-width="3"/>
+    <text x="670" y="512" text-anchor="middle" fill="#d1fae5" font-size="18" font-weight="bold">VERIFIABLE MEMORY</text>
+    <text x="670" y="536" text-anchor="middle" fill="#9fe7c4" font-size="13">group-owned — not us</text>
+    <text x="670" y="566" text-anchor="middle" fill="#d1fae5" font-size="13.5">Seal-encrypted files on <tspan font-weight="bold">Walrus</tspan></text>
+    <text x="670" y="588" text-anchor="middle" fill="#d1fae5" font-size="13.5">+ <tspan font-weight="bold">MemWal</tspan> semantic memory</text>
+  </g>
+
+  <!-- SUI (gold base) -->
+  <g>
+    <rect x="210" y="684" width="920" height="116" rx="12" fill="#10243f" stroke="#f6c453" stroke-width="2"/>
+    <text x="670" y="716" text-anchor="middle" fill="#fde68a" font-size="16" font-weight="bold">SUI — trust &amp; access layer</text>
+    <text x="670" y="744" text-anchor="middle" fill="#fde68a" font-size="13"><tspan font-weight="bold">hivemind::registry</tspan> : group index + SHA-256 file manifest</text>
+    <text x="670" y="768" text-anchor="middle" fill="#fde68a" font-size="13">enclave attestation (PCRs + pubkey) · zkLogin · Enoki gas · Seal gating</text>
+  </g>
+</svg>
