@@ -362,7 +362,7 @@ bot.on("document", async (ctx) => {
       { record: rec, network, serverUrl },
       { bytes, filename, mime, caption: ctx.message.caption },
     );
-    await react(ctx, "✅");
+    await react(ctx, "👍");
     const anchored = await recordOnChain(rec, out, filename, mime);
     await ctx.reply(
       `📎 *${filename}* secured.\n` +
@@ -388,7 +388,7 @@ bot.on("photo", async (ctx) => {
       { record: rec, network, serverUrl },
       { bytes, filename, mime: "image/jpeg", caption: ctx.message.caption },
     );
-    await react(ctx, "✅");
+    await react(ctx, "👍");
     const anchored = await recordOnChain(rec, out, filename, "image/jpeg");
     await ctx.reply(
       `🖼️ Image secured.\n🔒 Seal-encrypted → Walrus \`${out.blobId.slice(0, 12)}…\`${anchored ? "\n⛓️ Anchored on-chain (verifiable)" : ""}`,
@@ -500,7 +500,7 @@ bot.command("save", async (ctx) => {
   const rec = await resolveGroup(ctx);
   if (!rec) return;
   await ingestText({ record: rec, network, serverUrl }, text, "fact");
-  await react(ctx, "✅");
+  await react(ctx, "👍");
 });
 
 // --- text: explicit "remember:" trigger (high precision for v1) ---
@@ -538,7 +538,7 @@ bot.on("text", async (ctx) => {
   const rec = await resolveGroup(ctx);
   if (!rec) return;
   await ingestText({ record: rec, network, serverUrl }, fact, "fact");
-  await react(ctx, "✅");
+  await react(ctx, "👍");
 });
 
 bot.catch((err, ctx) => console.error(`bot error (${ctx.updateType}):`, err));
