@@ -543,12 +543,32 @@ bot.on("text", async (ctx) => {
 bot.catch((err, ctx) => console.error(`bot error (${ctx.updateType}):`, err));
 
 onboard.listen(apiPort);
-bot
-  .launch(() => console.log("🐝 HiveMind bot running. Add it to a group (privacy mode OFF)."))
-  .catch((e: Error) => {
-    console.error(`❌ Failed to reach Telegram: ${e.message}`);
-    console.error("   Check network access to api.telegram.org and that BOT_TOKEN is valid.");
-    process.exit(1);
-  });
+
+// Start polling, tolerating a transient 409 ("terminated by other getUpdates").
+// On a redeploy/restart Render briefly runs the old + new instance at once, so the
+// new one's getUpdates conflicts with the old's until Render tears the old down.
+// The HTTP backend (above) is already listening, so Render sees us healthy and
+// retires the old instance; we just retry the poll until the token is free —
+// exiting here would deadlock the deploy (Render never promotes a crashed instance).
+async function launchWithRetry(): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await bot.launch(() => console.log("🐝 HiveMind bot running. Add it to a group (privacy mode OFF)."));
+      return; // resolves only on graceful stop
+    } catch (e) {
+      const msg = (e as Error)?.message ?? String(e);
+      if (/already launched/i.test(msg)) return; // polling is in fact running
+      if (/409|conflict/i.test(msg) && attempt <= 24) {
+        console.warn(`Telegram 409 (another poller — likely a deploy overlap). Retry ${attempt} in 5s…`);
+        await new Promise((r) => setTimeout(r, 5000));
+        continue;
+      }
+      console.error(`❌ Failed to reach Telegram: ${msg}`);
+      console.error("   Check network access to api.telegram.org and that BOT_TOKEN is valid.");
+      process.exit(1);
+    }
+  }
+}
+void launchWithRetry();
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
