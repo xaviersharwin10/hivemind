@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import https from "node:https";
 import { setGlobalDispatcher, Agent as UndiciAgent } from "undici";
-import { Telegraf, type Context } from "telegraf";
+import { Telegraf, Markup, type Context } from "telegraf";
 import {
   type SuiNetwork,
   type GroupRecord,
@@ -157,6 +157,28 @@ async function groupFor(chatId: number): Promise<GroupRecord> {
   return rec;
 }
 
+/** True if `address` is already a delegate key on the MemWalAccount (delegate keys
+ *  are account-wide, so this is how we know claude.ai is already enabled). */
+async function accountHasDelegate(accountId: string, address: string): Promise<boolean> {
+  try {
+    const obj = await suiClient.getObject({ id: accountId, options: { showContent: true } });
+    const fields = (obj as { data?: { content?: { fields?: Record<string, unknown> } } }).data?.content?.fields;
+    const dks = (fields?.delegate_keys as Array<{ fields?: { sui_address?: string }; sui_address?: string }>) ?? [];
+    const want = address.toLowerCase();
+    return dks.some((d) => (d?.fields?.sui_address ?? d?.sui_address ?? "").toLowerCase() === want);
+  } catch {
+    return false;
+  }
+}
+
+/** Inline buttons for the main flows — taps instead of typed slash commands. */
+function claudeMenu() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback("🤖 Connect to Claude.ai", "connect_claude")],
+    [Markup.button.callback("💻 Connect a local AI (Claude Desktop)", "connect")],
+  ]);
+}
+
 function onboardingLink(chatId: number): string {
   const token = onboard.issueToken(String(chatId));
   // chat/token live in the URL HASH: Enoki computes the Google redirect_uri as
@@ -208,9 +230,10 @@ const onboard = new OnboardServer(
         `🐝 HiveMind is live!\n\n` +
           `I'll quietly turn this group's decisions & files into a verifiable memory you own.\n\n` +
           `🏷️ Tag me — “@${bot.botInfo?.username ?? "HiveMind"} we ship on June 21” — or drop a file\n` +
-          `🔎 /recall <question> to search it\n` +
-          `🤖 Members: /connect to plug in your AI\n\n` +
+          `🔎 /recall <question> to search it\n\n` +
+          `🤖 Connect your AI with the buttons below.\n\n` +
           `Vault: ${accountId.slice(0, 12)}…${accountId.slice(-6)}`,
+        claudeMenu(),
       )
       .catch(() => {});
   },
@@ -399,43 +422,52 @@ bot.on("photo", async (ctx) => {
   }
 });
 
-// --- /connect → member requests an AI connection; owner approves via SPA ---
-bot.command("connect", async (ctx) => {
+// --- Connect a local AI (Claude Desktop): member requests; owner approves via SPA ---
+async function runConnect(ctx: Context): Promise<void> {
   const rec = await resolveGroup(ctx);
   if (!rec) return;
   if (rec.members.length >= MAX_DELEGATE_KEYS - 1) {
-    return ctx.reply("⚠️ This group has reached the delegate-key limit (20 per account).");
+    await ctx.reply("⚠️ This group has reached the delegate-key limit (20 per account).");
+    return;
   }
+  const from = ctx.from;
   const member = await generateDelegateKey();
   const token = onboard.issueConnectToken({
-    chatId: String(ctx.chat.id),
-    requesterUserId: ctx.from.id,
-    requesterName: ctx.from.first_name ?? "member",
+    chatId: String(ctx.chat!.id),
+    requesterUserId: from!.id,
+    requesterName: from?.first_name ?? "member",
     memberPrivKey: member.privateKey,
     memberPubKeyHex: bytesToHex(member.publicKey),
-    label: `${ctx.from.first_name ?? "member"}-${Date.now().toString(36)}`,
+    label: `${from?.first_name ?? "member"}-${Date.now().toString(36)}`,
     accountId: rec.accountId,
   });
   const link = `${onboardUrl}/#connect=${token}`;
   await ctx.reply(
-    `🔑 ${ctx.from.first_name}, to connect your AI to this group's memory:\n\n` +
-      `1️⃣ Start a private chat with me first (open my profile → *Start*) so I can DM you your key.\n` +
-      `2️⃣ The group *owner* approves here: ${link}\n\n` +
+    `🔑 ${from?.first_name ?? "there"}, to connect your local AI (Claude Desktop) to this group's memory:\n\n` +
+      `1️⃣ Start a private chat with me first (open my profile → Start) so I can DM you your key.\n` +
+      `2️⃣ The group owner approves here: ${link}\n\n` +
       `Once approved, I'll DM you your key + setup config.`,
-    { parse_mode: "Markdown" },
   );
-});
+}
 
-// --- /enable_claude → owner authorizes the shared enclave delegate (one-time/group) ---
-bot.command("enable_claude", async (ctx) => {
+// --- Enable claude.ai: owner authorizes the shared enclave delegate (account-wide) ---
+async function runEnableClaude(ctx: Context): Promise<void> {
   const rec = await resolveGroup(ctx);
   if (!rec) return;
-  // Reuse the connect approval SPA, but the key being authorized is the shared
-  // enclave delegate (public address) — no personal key is generated/delivered.
+  // Delegate keys are account-wide, so this is once per owner. If it's already
+  // there, say so instead of attempting (and aborting) a duplicate add_delegate_key.
+  if (await accountHasDelegate(rec.accountId, ENCLAVE_DELEGATE.address)) {
+    await ctx.reply(
+      "✅ claude.ai is already enabled for all your groups (it's set per account, not per group).\nJust tap “Connect to Claude.ai” below.",
+      claudeMenu(),
+    );
+    return;
+  }
+  const from = ctx.from;
   const token = onboard.issueConnectToken({
-    chatId: String(ctx.chat.id),
-    requesterUserId: ctx.from.id,
-    requesterName: ctx.from.first_name ?? "owner",
+    chatId: String(ctx.chat!.id),
+    requesterUserId: from!.id,
+    requesterName: from?.first_name ?? "owner",
     memberPrivKey: "",
     memberPubKeyHex: ENCLAVE_DELEGATE.publicKeyHex,
     label: "claude-enclave",
@@ -443,42 +475,57 @@ bot.command("enable_claude", async (ctx) => {
     enclaveEnable: true,
   });
   const link = `${onboardUrl}/#connect=${token}`;
-  // Plain text (no parse_mode): "/connect_claude" contains "_" which legacy
-  // Markdown treats as an unbalanced italic entity and rejects.
   await ctx.reply(
-    `🔐 Enable claude.ai for this group (one-time, owner only)\n\n` +
-      `This authorizes HiveMind's secure enclave to read this group's memory on members' behalf — ` +
+    `🔐 Enable claude.ai (one-time, owner only — covers all your groups)\n\n` +
+      `This authorizes HiveMind's secure enclave to read your group memory on members' behalf — ` +
       `the enclave's key is hardware-sealed; the operator can't read it.\n\n` +
       `👉 Group owner, approve here: ${link}\n\n` +
-      `After that, members run /connect_claude.`,
+      `After that, anyone can tap “Connect to Claude.ai”.`,
   );
-});
+}
 
-// --- /connect_claude → link a member's claude.ai (hosted TEE path) to this group ---
-bot.command("connect_claude", async (ctx) => {
+// --- Connect claude.ai (hosted TEE path) for the tapping member ---
+async function runConnectClaude(ctx: Context): Promise<void> {
   const rec = await resolveGroup(ctx);
   if (!rec) return;
   if (!bindSecret || !remoteMcpUrl) {
-    return ctx.reply(
-      "⚠️ The claude.ai connector isn't enabled on this bot yet (missing REMOTE_MCP_URL / BIND_SIGNING_SECRET).\n" +
-        "You can still use the local path — run /connect.",
+    await ctx.reply(
+      "⚠️ The claude.ai connector isn't configured on this bot yet (REMOTE_MCP_URL / BIND_SIGNING_SECRET).\n" +
+        "You can still use a local AI — tap “Connect a local AI”.",
+      claudeMenu(),
     );
+    return;
+  }
+  // If the enclave isn't authorized on the account yet, guide the owner first.
+  if (!(await accountHasDelegate(rec.accountId, ENCLAVE_DELEGATE.address))) {
+    await ctx.reply(
+      "🔐 First the group owner needs to enable claude.ai (one-time). Tap below, then come back and connect.",
+      Markup.inlineKeyboard([[Markup.button.callback("🔐 Enable claude.ai (owner)", "enable_claude")]]),
+    );
+    return;
   }
   // Bind token proves this user belongs to THIS group; the remote MCP writes it
   // into their Stytch identity so claude.ai recalls only this group's memory.
-  const label = ("title" in ctx.chat && ctx.chat.title) ? ctx.chat.title : rec.namespace;
+  const label = ctx.chat && "title" in ctx.chat && ctx.chat.title ? ctx.chat.title : rec.namespace;
   const token = signBindToken({ accountId: rec.accountId, namespace: rec.namespace, network, label }, bindSecret);
   const bindLink = `${onboardUrl}/bind?t=${encodeURIComponent(token)}`;
-  // Plain text (no parse_mode): the bind token + command names contain "_" which
-  // Telegram's legacy Markdown parser treats as italic and rejects as unbalanced.
   await ctx.reply(
     `🤖 Connect this group's memory to claude.ai\n\n` +
       `1️⃣ Open this link and sign in — it links your Claude account to this group:\n${bindLink}\n\n` +
       `2️⃣ In claude.ai: Settings → Connectors → Add custom connector, and paste:\n${remoteMcpUrl.replace(/\/$/, "")}/mcp\n\n` +
       `Then ask Claude to "recall what the group decided". Your memory is read inside a secure enclave — the key never leaves it.\n\n` +
-      `Prefer self-custody / Claude Desktop? Use /connect instead.`,
+      `Prefer self-custody / Claude Desktop? Tap “Connect a local AI”.`,
   );
-});
+}
+
+// Slash commands + inline-button (callback) bindings → same logic either way.
+bot.command("connect", runConnect);
+bot.command("enable_claude", runEnableClaude);
+bot.command("connect_claude", runConnectClaude);
+bot.command("menu", (ctx) => ctx.reply("🐝 HiveMind — connect your AI to this group's memory:", claudeMenu()));
+bot.action("connect", async (ctx) => { await ctx.answerCbQuery().catch(() => {}); await runConnect(ctx); });
+bot.action("enable_claude", async (ctx) => { await ctx.answerCbQuery().catch(() => {}); await runEnableClaude(ctx); });
+bot.action("connect_claude", async (ctx) => { await ctx.answerCbQuery().catch(() => {}); await runConnectClaude(ctx); });
 
 // --- /recall <query> (demo/debug) ---
 bot.command("recall", async (ctx) => {
