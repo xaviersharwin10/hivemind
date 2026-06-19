@@ -454,7 +454,7 @@ bot.command("connect_claude", async (ctx) => {
   await ctx.reply(
     `🤖 Connect this group's memory to claude.ai\n\n` +
       `1️⃣ Open this link and sign in — it links your Claude account to this group:\n${bindLink}\n\n` +
-      `2️⃣ In claude.ai: Settings → Connectors → Add custom connector, and paste:\n${remoteMcpUrl}\n\n` +
+      `2️⃣ In claude.ai: Settings → Connectors → Add custom connector, and paste:\n${remoteMcpUrl.replace(/\/$/, "")}/mcp\n\n` +
       `Then ask Claude to "recall what the group decided". Your memory is read inside a secure enclave — the key never leaves it.\n\n` +
       `Prefer self-custody / Claude Desktop? Use /connect instead.`,
   );
