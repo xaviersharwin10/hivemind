@@ -20,7 +20,13 @@ Later, any MCP-compatible AI tool (Claude Desktop, Cursor) plugs into that memor
 
 ![HiveMind architecture](docs/architecture.png)
 
-A **capture** path (Telegram → bot) and a **recall** path (your AI → a local MCP server) converge on one **group-owned, verifiable memory** — Seal-encrypted files on Walrus plus MemWal semantic memory — all anchored and access-gated on Sui by our `hivemind::registry` Move package (zkLogin sign-in, Enoki gas sponsorship, SHA-256 file manifest, delegate-key access). Two runtimes, one shared memory; the original plaintext is only ever decrypted on the member's own machine.
+One **capture** path and **two recall** paths converge on a single **group-owned, verifiable memory** — Seal-encrypted files on Walrus plus MemWal semantic memory — all anchored and access-gated on Sui by our `hivemind::registry` Move package (zkLogin sign-in, Enoki gas sponsorship, SHA-256 file manifest, delegate-key access).
+
+- **① Capture** — the HiveMind bot watches the Telegram group, Seal-encrypts shared files, and writes decisions + artifacts into the group's memory.
+- **②a Recall · Path A (self-custody)** — Claude Desktop / Cursor talk to a **local MCP** that holds the delegate key and decrypts **on your own machine**. Maximum custody; needs a desktop MCP client.
+- **②b Recall · Path B (zero-install, claude.ai)** — **claude.ai** connects (OAuth) to a hosted **remote MCP**, which forwards recall to a **Nautilus TEE enclave** (AWS Nitro). The enclave holds the key, decrypts **inside the enclave**, and returns an **enclave-signed** result; the remote MCP **verifies that signature against the enclave key attested on-chain** before returning anything. So even the web tier is *"not even us"* — the operator, host, and root cannot read group plaintext.
+
+Two clients, one shared memory: plaintext is only ever decrypted **on the member's own machine (Path A)** or **inside the attested enclave (Path B)** — never on a server an operator can read.
 
 ## Why it fits the Walrus track
 
@@ -60,8 +66,9 @@ Each group's memory lives in its own **`MemWalAccount` on Sui, owned by the grou
 | **Ingestion** | files → Seal-encrypted Walrus blob + MemWal memory + **on-chain artifact manifest** (bot-signed, Enoki-sponsored) | ✅ live |
 | **Seal-encrypted artifacts** | Files are Seal-encrypted before Walrus; decryption gated by the group's on-chain `seal_approve` | ✅ live E2E |
 | **Member handoff** | `/connect` → owner approves → member gets a delegate key + MCP config | ✅ live |
-| **`hivemind-read` MCP** | Claude/Cursor recall group memory + read (decrypt) the original Walrus files | ✅ live |
-| **Confidential remote MCP (Nautilus TEE)** | recall runs **inside an AWS Nitro enclave** that holds the key; results are enclave-signed and verified before use — unlocks zero-install **claude.ai** connectors without the operator ever seeing plaintext | 🧪 local PoC proven (Rust enclave + Move verifier + MCP-over-HTTP front, real recall vs testnet); OAuth + AWS deploy pending |
+| **`hivemind-read` MCP (Path A)** | Claude Desktop/Cursor recall group memory + read (decrypt) the original Walrus files, self-custody | ✅ live |
+| **Confidential remote MCP — Nautilus TEE (Path B)** | recall runs **inside an AWS Nitro enclave** that holds the key; results are enclave-signed and verified against the **on-chain-attested** enclave key before use | ✅ live E2E (real Nitro enclave + on-chain attestation on testnet) |
+| **claude.ai Custom Connector (Path B)** | zero-install connector → hosted remote MCP → enclave; **Stytch OAuth** + per-user group binding (multi-group), no plaintext ever leaves the TEE | ✅ live E2E (OAuth + attested recall from claude.ai) |
 
 The sections below cover the full design, the MemWal permission model, and the decisions behind it.
 
@@ -113,11 +120,12 @@ pnpm onboard    # onboarding SPA on :5173 (second terminal)
 **Use it:**
 1. Add the bot to a Telegram group → it DMs the creator an onboarding link.
 2. Creator opens it → **Sign in with Google** → their group account is created (gas sponsored, they own it).
-3. In the group: drop a file or type `remember: we're using Postgres`. `/recall postgres` reads it back.
-4. A member types `/connect` → owner approves → member is DMed a delegate key + `claude_desktop_config.json`.
-5. Paste that into Claude → ask *"recall what the group decided and read the spec file."*
+3. In the group: drop a file, **@mention the bot**, or type `remember: we're using Postgres`. `/recall postgres` reads it back. (The bot reacts 👍 when it captures.)
+4. Then connect any AI to that memory — tap the bot's **🤖 Connect** buttons and pick one:
+   - **Path A — Claude Desktop / Cursor (self-custody):** owner approves the member → bot DMs a delegate key + ready-to-paste `claude_desktop_config.json`. Paste into Claude → *"recall what the group decided and read the spec file."*
+   - **Path B — claude.ai (zero-install):** tap **Connect to Claude.ai** → open the bind link → sign in (Stytch) → add the connector URL in claude.ai. Then just ask *"use hivemind to recall what we decided."* No keys, no install; recall runs in the attested enclave.
 
-### Connecting an AI (MCP)
+### Connecting an AI · Path A (local, self-custody)
 
 The `hivemind-read` server (`recall` + `read_artifact`) ships as a standalone npm package, so a member can run it on any machine with no checkout:
 
@@ -163,9 +171,19 @@ claude.ai ──MCP/HTTP──► remote-mcp ──► Nautilus enclave (AWS Nit
 - The **Move package** (`enclave/move/hivemind-app`) registers the enclave on-chain (PCRs + pubkey from its attestation) and verifies its signed responses.
 - The **remote MCP** (`packages/remote-mcp`) speaks claude.ai's Streamable-HTTP transport, proxies recall to the enclave, and **cryptographically verifies the enclave's signature (BCS + Ed25519) before returning anything** — refusing unverified memory.
 
-**Status:** the full path is **proven on the free local loop** — the Rust enclave does real recall against the testnet relayer, and an MCP client pulls verified, attested results end to end. Remaining to go live: claude.ai **OAuth** and the **real AWS Nitro enclave + on-chain attestation**.
+**Status: live end-to-end on Sui testnet.** The enclave runs in a **real AWS Nitro Enclave**; its attestation document is verified on-chain by `register_enclave`, which binds the enclave's signing pubkey into a shared `Enclave<HIVEMIND>` object. The remote MCP reads **that on-chain-attested key** at recall time (so it auto-tracks enclave restarts) and rejects any result that doesn't verify. claude.ai connects over OAuth (Stytch Connected Apps); each user's group binding lives in unforgeable Stytch `trusted_metadata`, so a connector can only ever reach the group(s) that user proved membership in — and a user bound to several groups recalls across all of them.
 
-Reproduce the local loop (no AWS needed):
+### Connect from claude.ai (Path B)
+
+1. In your Telegram group, tap the bot's **🤖 Connect → Connect to Claude.ai** (or `/connect_claude`). Open the bind link and sign in.
+2. In **claude.ai → Settings → Connectors → Add custom connector**, paste the MCP URL (e.g. `https://<your-mcp>.onrender.com/mcp`) and authorize.
+3. Ask: *"use hivemind to recall the ship date."* claude.ai calls the connector → remote MCP → enclave → returns an **enclave-signed, on-chain-verified** answer.
+
+> If recall ever fails with a generic error and **no request appears in the MCP logs**, the connector's OAuth token has gone stale — **disconnect & reconnect** the connector to mint a fresh one. (The server logs every request/auth outcome to make this a one-glance diagnosis.)
+
+### Reproduce locally (no AWS needed)
+
+The same code runs on the free local loop — the Rust enclave does real recall against the testnet relayer, and an MCP client pulls verified, attested results end to end:
 
 ```bash
 # 1) build + run the enclave app locally (debug; real attestation needs Nitro hardware)
@@ -182,6 +200,8 @@ ENCLAVE_URL=http://localhost:3000 HIVEMIND_NAMESPACE=<chat id> \
 pnpm --filter @hivemind/remote-mcp test-client "what did we decide?"
 ```
 
+For the **real Nitro + on-chain attestation** deploy (enclave build, `register_enclave`, PCR pinning, Render hosting, Stytch wiring), see [enclave/DEPLOYMENT.md](enclave/DEPLOYMENT.md) and [RENDER_DEPLOY.md](RENDER_DEPLOY.md).
+
 Move build: `cd enclave/move/hivemind-app && sui move build`.
 
 ---
@@ -191,7 +211,7 @@ Move build: `cd enclave/move/hivemind-app && sui move build`.
 - **Per-group memory under a shared account.** A Sui address can own exactly one `MemWalAccount`, so a creator's multiple groups share one account — but each group has its **own namespace** (its chat id), so memories and Seal keys are separated per group and recall never mixes them (proven by `pnpm namespace-test`). The residual edge — a *malicious, technical* member of one group deliberately targeting another of the *same creator's* groups via the account-wide delegate — is the kind of thing production handles with server-side permissions (as every real app does); full cryptographic per-group isolation (per-group owner accounts) is a roadmap item, deliberately deferred because it trades everyday usability/recoverability for purity most users don't need.
 - **Adding a member needs the creator to approve** (owner-only `add_delegate_key`) — inherent to "no one but you holds the keys."
 - Telegram-only ingestion in v1; Discord/email forwarders are a roadmap slide.
-- **Confidential remote MCP (Nautilus TEE)** — local PoC proven (Rust enclave + Move verifier + attestation-verifying MCP-HTTP front, real recall vs testnet); going live needs claude.ai OAuth + a real AWS Nitro enclave with on-chain attestation. This is the path to a zero-install **claude.ai** connector that keeps "not even us" confidentiality on the web tier.
+- **Confidential remote MCP (Nautilus TEE) — live, but on testnet.** The zero-install **claude.ai** path runs in a real AWS Nitro enclave with on-chain attestation today; hardening for mainnet (HA enclave, key rotation policy, mainnet packages) is roadmap. The enclave is single-instance, so it's a demo/availability (not confidentiality) bottleneck under load.
 
 ## Built with
 

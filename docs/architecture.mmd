@@ -1,40 +1,62 @@
 flowchart TB
-  classDef write fill:#0e2436,stroke:#38bdf8,color:#e0f2fe,stroke-width:2px;
-  classDef read  fill:#241040,stroke:#c084fc,color:#f3e8ff,stroke-width:2px;
+  classDef cap   fill:#0e2436,stroke:#38bdf8,color:#e0f2fe,stroke-width:2px;
+  classDef self  fill:#241040,stroke:#c084fc,color:#f3e8ff,stroke-width:2px;
+  classDef tee   fill:#3a1020,stroke:#fb7185,color:#ffe4e6,stroke-width:2px;
   classDef mem   fill:#0f2a1c,stroke:#34d399,color:#d1fae5,stroke-width:3px;
   classDef base  fill:#10243f,stroke:#f6c453,color:#fde68a,stroke-width:2px;
   classDef lane  fill:#0b1220,stroke:#334155,stroke-width:1px,color:#cbd5e1;
 
-  subgraph WRITE["CAPTURE  -  automatic, inside Telegram"]
-    direction TB
-    TG["Telegram Group<br/>decisions and files"]
-    BOT["HiveMind Bot<br/>captures and Seal-encrypts"]
-    TG -->|"share"| BOT
+  %% ===== 1. CAPTURE =====
+  subgraph CAP["①  CAPTURE  -  automatic, inside Telegram"]
+    direction LR
+    TG["Telegram Group<br/>decisions · files · links"]
+    BOT["HiveMind Bot<br/>captures · Seal-encrypts · signs"]
+    TG -->|"@mention / share"| BOT
   end
 
-  subgraph READ["RECALL  -  any MCP-compatible AI"]
-    direction TB
-    AI["Your AI<br/>Claude / Cursor"]
-    MCP["MCP Server<br/>runs on your own machine"]
-    AI -->|"ask"| MCP
+  %% ===== shared memory (the hub) =====
+  MEM["<b>VERIFIABLE MEMORY</b> &nbsp; (group-owned, not us)<br/><br/>Seal-encrypted files on <b>Walrus</b> &nbsp; + &nbsp; <b>MemWal</b> semantic memory"]
+
+  %% ===== 2. RECALL — two paths, side by side =====
+  subgraph RECALL["②  RECALL  -  pick your client"]
+    direction LR
+    subgraph RA["Path A  -  self-custody"]
+      direction TB
+      AIA["Claude Desktop · Cursor"]
+      MCPL["Local MCP<br/>key stays on your machine"]
+      AIA -->|"ask"| MCPL
+    end
+    subgraph RB["Path B  -  zero-install (claude.ai)"]
+      direction TB
+      CAI["claude.ai Custom Connector"]
+      RMCP["Remote MCP<br/>Stytch OAuth · verifies attestation"]
+      ENC["Nautilus TEE Enclave (AWS Nitro)<br/>holds key · decrypts · enclave-signs"]
+      CAI -->|"ask · OAuth"| RMCP
+      RMCP <-->|"query / signed + attested"| ENC
+    end
   end
 
-  MEM["<b>VERIFIABLE MEMORY</b> &nbsp; (group-owned, not us)<br/><br/>Seal-encrypted files on Walrus &nbsp; + &nbsp; MemWal semantic memory"]
+  %% ===== 3. base trust layer =====
+  SUI["<b>SUI  -  trust &amp; access layer</b><br/><br/><b>hivemind::registry</b> : group index + SHA-256 file manifest<br/>enclave attestation (PCRs + pubkey) &nbsp; · &nbsp; zkLogin · Enoki gas · Seal gating"]
 
-  SUI["<b>SUI &nbsp; - &nbsp; hivemind::registry</b> (our Move package)<br/><br/>zkLogin sign-in &nbsp; - &nbsp; Enoki gas sponsorship<br/>SHA-256 file manifest &nbsp; - &nbsp; delegate-key access"]
+  BOT  ==>|"write"| MEM
+  MEM  ==>|"read &amp; decrypt — on your machine"| MCPL
+  MEM  ==>|"read &amp; decrypt — inside the enclave"| ENC
+  MEM  ==>|"anchored &amp; access-gated by"| SUI
+  SUI  -.->|"attests enclave key"| ENC
 
-  BOT ==>|"write"| MEM
-  MCP ==>|"read and decrypt"| MEM
-  MEM ==>|"anchored and access-gated by"| SUI
-
-  class TG,BOT write;
-  class AI,MCP read;
+  class TG,BOT cap;
+  class AIA,MCPL self;
+  class CAI,RMCP,ENC tee;
   class MEM mem;
   class SUI base;
-  class WRITE,READ lane;
+  class CAP,RA,RB,RECALL lane;
 
   linkStyle 0 stroke:#38bdf8,stroke-width:2px;
   linkStyle 1 stroke:#c084fc,stroke-width:2px;
-  linkStyle 2 stroke:#38bdf8,stroke-width:3px;
-  linkStyle 3 stroke:#c084fc,stroke-width:3px;
-  linkStyle 4 stroke:#f6c453,stroke-width:3px;
+  linkStyle 2 stroke:#fb7185,stroke-width:2px;
+  linkStyle 3 stroke:#38bdf8,stroke-width:3px;
+  linkStyle 4 stroke:#c084fc,stroke-width:3px;
+  linkStyle 5 stroke:#fb7185,stroke-width:3px;
+  linkStyle 6 stroke:#f6c453,stroke-width:3px;
+  linkStyle 7 stroke:#f6c453,stroke-width:2px,stroke-dasharray:4 4;
