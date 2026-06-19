@@ -402,7 +402,7 @@ bot.command("connect", async (ctx) => {
   await ctx.reply(
     `🔑 ${ctx.from.first_name}, to connect your AI to this group's memory:\n\n` +
       `1️⃣ Start a private chat with me first (open my profile → *Start*) so I can DM you your key.\n` +
-      `2️⃣ The group **owner** approves here: ${link}\n\n` +
+      `2️⃣ The group *owner* approves here: ${link}\n\n` +
       `Once approved, I'll DM you your key + setup config.`,
     { parse_mode: "Markdown" },
   );
@@ -429,7 +429,7 @@ bot.command("enable_claude", async (ctx) => {
     `🔐 *Enable claude.ai for this group* (one-time, owner only)\n\n` +
       `This authorizes HiveMind's secure enclave to read *this group's* memory on members' behalf — ` +
       `the enclave's key is hardware-sealed; the operator can't read it.\n\n` +
-      `👉 Group **owner**, approve here: ${link}\n\n` +
+      `👉 Group *owner*, approve here: ${link}\n\n` +
       `After that, members run /connect_claude.`,
     { parse_mode: "Markdown" },
   );
