@@ -217,8 +217,7 @@ const onboard = new OnboardServer(
       await bot.telegram
         .sendMessage(
           info.chatId,
-          `🤖 *claude.ai is now enabled for this group.*\nMembers can run /connect_claude to link their Claude account.`,
-          { parse_mode: "Markdown" },
+          `🤖 claude.ai is now enabled for this group.\nMembers can run /connect_claude to link their Claude account.`,
         )
         .catch(() => {});
       return;
@@ -425,13 +424,14 @@ bot.command("enable_claude", async (ctx) => {
     enclaveEnable: true,
   });
   const link = `${onboardUrl}/#connect=${token}`;
+  // Plain text (no parse_mode): "/connect_claude" contains "_" which legacy
+  // Markdown treats as an unbalanced italic entity and rejects.
   await ctx.reply(
-    `🔐 *Enable claude.ai for this group* (one-time, owner only)\n\n` +
-      `This authorizes HiveMind's secure enclave to read *this group's* memory on members' behalf — ` +
+    `🔐 Enable claude.ai for this group (one-time, owner only)\n\n` +
+      `This authorizes HiveMind's secure enclave to read this group's memory on members' behalf — ` +
       `the enclave's key is hardware-sealed; the operator can't read it.\n\n` +
-      `👉 Group *owner*, approve here: ${link}\n\n` +
+      `👉 Group owner, approve here: ${link}\n\n` +
       `After that, members run /connect_claude.`,
-    { parse_mode: "Markdown" },
   );
 });
 
@@ -449,13 +449,14 @@ bot.command("connect_claude", async (ctx) => {
   // into their Stytch identity so claude.ai recalls only this group's memory.
   const token = signBindToken({ accountId: rec.accountId, namespace: rec.namespace, network }, bindSecret);
   const bindLink = `${onboardUrl}/bind?t=${encodeURIComponent(token)}`;
+  // Plain text (no parse_mode): the bind token + command names contain "_" which
+  // Telegram's legacy Markdown parser treats as italic and rejects as unbalanced.
   await ctx.reply(
-    `🤖 *Connect this group's memory to claude.ai*\n\n` +
-      `1️⃣ Open this link and sign in — it links your Claude account to *this group*:\n${bindLink}\n\n` +
-      `2️⃣ In claude.ai: *Settings → Connectors → Add custom connector*, and paste:\n\`${remoteMcpUrl}\`\n\n` +
+    `🤖 Connect this group's memory to claude.ai\n\n` +
+      `1️⃣ Open this link and sign in — it links your Claude account to this group:\n${bindLink}\n\n` +
+      `2️⃣ In claude.ai: Settings → Connectors → Add custom connector, and paste:\n${remoteMcpUrl}\n\n` +
       `Then ask Claude to "recall what the group decided". Your memory is read inside a secure enclave — the key never leaves it.\n\n` +
-      `_Prefer self-custody / Claude Desktop? Use /connect instead._`,
-    { parse_mode: "Markdown" },
+      `Prefer self-custody / Claude Desktop? Use /connect instead.`,
   );
 });
 
