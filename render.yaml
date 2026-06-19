@@ -19,8 +19,11 @@ services:
       # Live AWS Nitro enclave (stable Elastic IP across stop/start).
       - key: ENCLAVE_URL
         value: http://34.203.108.130:3000
+      # Fallback only — the live key is read on-chain (attested) at runtime. Keep
+      # this synced to the current enclave so attestation still passes if the
+      # on-chain read is ever unreachable from Render's region.
       - key: ENCLAVE_PUBKEY
-        value: 5829a8f7ab72f5791050ea5bf54688e81faa451e783d3921c8e1aa6151339d4b
+        value: ddaa9c7d4ec7dc08f842e723f5deccd1dc772b7499b064f76e47ef611a9b4a52
       # Stytch OAuth (non-secret). SERVER_URL auto-derives from RENDER_EXTERNAL_URL.
       - key: STYTCH_DOMAIN
         value: https://groovy-cycle-8931.customers.stytch.dev

@@ -223,6 +223,7 @@ function makeMcpServer(subject?: string): McpServer {
       },
     },
     async ({ query, limit, group }) => {
+      console.log(`[recall] subject=${subject ?? "<local>"} query=${JSON.stringify(query)} group=${group ?? "(all)"}`);
       // Resolve the caller's group(s) from their verified identity (auth on) or the
       // local dev env (auth off). The user never supplies account ids — only an
       // optional group name to filter the groups they're already bound to.
@@ -346,8 +347,12 @@ async function handleMcp(req: IncomingMessage, res: ServerResponse): Promise<voi
   // A missing/invalid token writes the 401 + WWW-Authenticate challenge that
   // bootstraps claude.ai's OAuth + Dynamic Client Registration flow.
   const auth = await requireAuth(req, res);
-  if (auth === "challenged") return;
+  if (auth === "challenged") {
+    console.log(`[mcp] ${req.method} 401 challenge (token=${req.headers["authorization"] ? "present-but-invalid" : "missing"})`);
+    return;
+  }
   const subject = auth ? auth.subject : undefined;
+  console.log(`[mcp] ${req.method} authed subject=${subject ?? "<none/local>"} session=${req.headers["mcp-session-id"] ?? "new"}`);
 
   const sessionId = req.headers["mcp-session-id"] as string | undefined;
   const body = req.method === "POST" ? await readBody(req) : undefined;
@@ -416,6 +421,9 @@ async function handleBind(req: IncomingMessage, res: ServerResponse): Promise<vo
 }
 
 const httpServer = createServer((req, res) => {
+  // Access log — proves whether claude.ai's requests reach us at all, and on
+  // which path (initialize / tools-call go to /mcp; OAuth probes to /.well-known).
+  console.log(`→ ${req.method} ${req.url} auth=${req.headers["authorization"] ? "bearer" : "none"} ua=${(req.headers["user-agent"] ?? "").slice(0, 40)}`);
   if (req.method === "GET" && req.url === "/") {
     res.writeHead(200, { "Content-Type": "text/plain" });
     res.end("hivemind-remote-mcp ok");
