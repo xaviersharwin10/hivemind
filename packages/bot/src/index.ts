@@ -20,6 +20,7 @@
  */
 
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import https from "node:https";
@@ -542,8 +543,6 @@ bot.on("text", async (ctx) => {
 
 bot.catch((err, ctx) => console.error(`bot error (${ctx.updateType}):`, err));
 
-onboard.listen(apiPort);
-
 // Start polling, tolerating a transient 409 ("terminated by other getUpdates").
 // On a redeploy/restart Render briefly runs the old + new instance at once, so the
 // new one's getUpdates conflicts with the old's until Render tears the old down.
@@ -569,6 +568,36 @@ async function launchWithRetry(): Promise<void> {
     }
   }
 }
-void launchWithRetry();
+// Prefer WEBHOOK mode when a public URL is known (Render injects RENDER_EXTERNAL_URL).
+// Telegram pushes updates → no polling, so 409 conflicts are impossible and the
+// free-tier sleep is moot (an update wakes the service). Setting a webhook also
+// evicts any stale getUpdates poller. Falls back to long-polling for local dev.
+const publicUrl = (env.BOT_PUBLIC_URL ?? env.RENDER_EXTERNAL_URL ?? "").replace(/\/$/, "");
+if (publicUrl) {
+  const hookId = createHash("sha256").update(BOT_TOKEN).digest("hex").slice(0, 24);
+  const hookPath = `/tg/${hookId}`;
+  const secretToken = createHash("sha256").update("hivemind-webhook:" + BOT_TOKEN).digest("hex");
+  onboard.useWebhook(hookPath, bot.webhookCallback(hookPath, { secretToken }));
+  onboard.listen(apiPort);
+  // Fetch botInfo first (powers ctx.me for @mention capture — launch() would set it
+  // in polling mode), then register the webhook.
+  bot.telegram
+    .getMe()
+    .then((me) => {
+      bot.botInfo = me;
+      return bot.telegram.setWebhook(`${publicUrl}${hookPath}`, {
+        secret_token: secretToken,
+        drop_pending_updates: true,
+      });
+    })
+    .then(() => console.log(`🐝 HiveMind bot via webhook → ${publicUrl}${hookPath} (as @${bot.botInfo?.username})`))
+    .catch((e: Error) => {
+      console.error(`❌ setWebhook failed: ${e.message}`);
+      process.exit(1);
+    });
+} else {
+  onboard.listen(apiPort);
+  void launchWithRetry();
+}
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));

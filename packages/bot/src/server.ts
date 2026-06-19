@@ -47,6 +47,13 @@ export class OnboardServer {
   private pending = new Map<string, Pending>();
   private connectPending = new Map<string, ConnectInfo>();
   private enoki?: EnokiClient;
+  /** Optional Telegram webhook: when set, POSTs to this path are handed to telegraf. */
+  private webhook?: { path: string; handler: (req: IncomingMessage, res: import("node:http").ServerResponse) => void };
+
+  /** Register the Telegram webhook handler (call before listen). */
+  useWebhook(path: string, handler: (req: IncomingMessage, res: import("node:http").ServerResponse) => void): void {
+    this.webhook = { path, handler };
+  }
 
   constructor(
     private readonly registry: Registry,
@@ -121,6 +128,14 @@ export class OnboardServer {
 
   listen(port: number): void {
     createServer(async (req, res) => {
+      // Telegram webhook (if configured): hand the raw request to telegraf before
+      // we touch the body or set CORS. Telegram pushes updates here, so the bot
+      // never polls (no getUpdates → no 409 conflicts).
+      if (this.webhook && req.method === "POST" && req.url === this.webhook.path) {
+        this.webhook.handler(req, res);
+        return;
+      }
+
       // CORS — the SPA is served from another origin (localhost:5173).
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type");
