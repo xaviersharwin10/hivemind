@@ -37,10 +37,18 @@ const ENCLAVE_URL = (process.env.ENCLAVE_URL ?? "http://localhost:3000").replace
 const NAMESPACE = process.env.HIVEMIND_NAMESPACE ?? "";
 const ACCOUNT_ID = process.env.HIVEMIND_ACCOUNT_ID ?? "";
 const PORT = Number(process.env.PORT ?? 8787);
-// In production this MUST be the enclave key registered ON-CHAIN (from the
-// attestation), not whatever a server claims. For the local loop we fall back
-// to fetching it from the enclave's /health_check.
+// Enclave verification key. PRIMARY source is the ON-CHAIN attested key: at
+// `register_enclave` the chain verifies the Nitro attestation doc and binds the
+// enclave's pubkey into a shared `Enclave<HIVEMIND>` object. We read that key via
+// RPC, so it auto-tracks every restart/re-registration — no manual ENCLAVE_PUBKEY.
+// ENCLAVE_PUBKEY (env) and the enclave's /health_check are fallbacks only.
 const ENCLAVE_PUBKEY_ENV = process.env.ENCLAVE_PUBKEY;
+const SUI_RPC_URL = process.env.SUI_RPC_URL ?? "https://fullnode.testnet.sui.io:443";
+const ENCLAVE_FRAMEWORK_PKG =
+  process.env.ENCLAVE_FRAMEWORK_PKG ?? "0x8ecf22e78c90c3e32833d76d82415d7e4227ea370bec4efdad4c4830cbda9e49";
+const ENCLAVE_APP_PKG =
+  process.env.ENCLAVE_APP_PKG ?? "0xa583af305a9edd07dbb3b67bceda94ee97a4b225f48c8e06a9a07d9ab5ef702b";
+const ENCLAVE_OBJ_TYPE = `${ENCLAVE_FRAMEWORK_PKG}::enclave::Enclave<${ENCLAVE_APP_PKG}::hivemind::HIVEMIND>`;
 
 const RECALL_INTENT = 0;
 
@@ -73,16 +81,85 @@ interface EnclaveRecall {
   signature: string;
 }
 
-let cachedPubkey: string | undefined = ENCLAVE_PUBKEY_ENV;
-async function enclavePubkey(): Promise<string> {
-  if (cachedPubkey) return cachedPubkey;
-  const r = await fetch(`${ENCLAVE_URL}/health_check`);
-  const j = (await r.json()) as { pk: string };
-  cachedPubkey = j.pk;
-  return cachedPubkey;
+async function suiRpc<T>(method: string, params: unknown[]): Promise<T> {
+  const r = await fetch(SUI_RPC_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+  });
+  const j = (await r.json()) as { result?: T; error?: { message: string } };
+  if (j.error) throw new Error(j.error.message);
+  return j.result as T;
 }
 
-/** Re-derive the signed bytes and verify the enclave's Ed25519 signature. */
+/** Read the attested enclave pubkey (hex) from the latest on-chain Enclave<HIVEMIND>
+ *  object — i.e. the most recent `register_enclave` that created our app's type. */
+async function fetchOnChainEnclavePubkey(): Promise<string | undefined> {
+  const res = await suiRpc<{ data?: Array<{ objectChanges?: Array<{ type: string; objectType?: string; objectId?: string }> }> }>(
+    "suix_queryTransactionBlocks",
+    [
+      {
+        filter: { MoveFunction: { package: ENCLAVE_FRAMEWORK_PKG, module: "enclave", function: "register_enclave" } },
+        options: { showObjectChanges: true },
+      },
+      null,
+      20,
+      true, // descending (latest first)
+    ],
+  );
+  for (const tx of res.data ?? []) {
+    const created = (tx.objectChanges ?? []).find((c) => c.type === "created" && c.objectType === ENCLAVE_OBJ_TYPE);
+    if (!created?.objectId) continue;
+    const obj = await suiRpc<{ data?: { content?: { fields?: { pk?: number[] | string } } } }>("sui_getObject", [
+      created.objectId,
+      { showContent: true },
+    ]);
+    const pk = obj?.data?.content?.fields?.pk;
+    if (Array.isArray(pk)) return Buffer.from(pk).toString("hex");
+    if (typeof pk === "string") return Buffer.from(pk, "base64").toString("hex");
+  }
+  return undefined;
+}
+
+let cachedPubkey: string | undefined;
+let cachedPubkeyExp = 0;
+const PUBKEY_TTL_MS = 5 * 60_000;
+
+/** Resolve the enclave verification key: on-chain (preferred) → env → /health_check. */
+async function enclavePubkey(forceRefresh = false): Promise<string | undefined> {
+  if (!forceRefresh && cachedPubkey && Date.now() < cachedPubkeyExp) return cachedPubkey;
+  // 1. On-chain attested key (auto-tracks restarts; the chain verified the Nitro doc).
+  try {
+    const onchain = await fetchOnChainEnclavePubkey();
+    if (onchain) {
+      cachedPubkey = onchain;
+      cachedPubkeyExp = Date.now() + PUBKEY_TTL_MS;
+      return onchain;
+    }
+  } catch (e) {
+    console.warn("on-chain enclave pubkey read failed:", (e as Error).message);
+  }
+  // 2. Explicit env override.
+  if (ENCLAVE_PUBKEY_ENV) {
+    cachedPubkey = ENCLAVE_PUBKEY_ENV;
+    cachedPubkeyExp = Date.now() + PUBKEY_TTL_MS;
+    return ENCLAVE_PUBKEY_ENV;
+  }
+  // 3. Last resort (local dev only — endpoint-trusted, not attested).
+  try {
+    const r = await fetch(`${ENCLAVE_URL}/health_check`);
+    const j = (await r.json()) as { pk: string };
+    cachedPubkey = j.pk;
+    cachedPubkeyExp = Date.now() + PUBKEY_TTL_MS;
+    return j.pk;
+  } catch {
+    return cachedPubkey;
+  }
+}
+
+/** Re-derive the signed bytes and verify the enclave's Ed25519 signature. If the
+ *  first check fails (e.g. key rotated since cache), force a fresh on-chain read
+ *  and retry once before rejecting. */
 async function verifyAttestation(out: EnclaveRecall): Promise<boolean> {
   if (out.response.intent !== RECALL_INTENT) return false;
   const msg = IntentMessageBcs.serialize({
@@ -91,12 +168,16 @@ async function verifyAttestation(out: EnclaveRecall): Promise<boolean> {
     data: out.response.data,
   }).toBytes();
   const sig = hexToBytes(out.signature);
-  const pk = hexToBytes(await enclavePubkey());
-  try {
-    return await ed.verifyAsync(sig, msg, pk);
-  } catch {
-    return false;
+  for (const force of [false, true]) {
+    const pkHex = await enclavePubkey(force);
+    if (!pkHex) return false;
+    try {
+      if (await ed.verifyAsync(sig, msg, hexToBytes(pkHex))) return true;
+    } catch {
+      /* try a fresh key on the next iteration */
+    }
   }
+  return false;
 }
 
 async function enclaveRecall(
