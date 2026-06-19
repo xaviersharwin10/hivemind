@@ -183,16 +183,17 @@ const onboard = new OnboardServer(
   registry,
   async (chatId, accountId) => {
     groupCache.delete(String(chatId)); // fresh group → resolve from chain on next message
+    // Plain text (no parse_mode): the bot @handle can contain "_" which legacy
+    // Markdown would mis-parse as italic.
     await bot.telegram
       .sendMessage(
         chatId,
-        `🐝 *HiveMind is live!*\n\n` +
+        `🐝 HiveMind is live!\n\n` +
           `I'll quietly turn this group's decisions & files into a verifiable memory you own.\n\n` +
-          `📎 Drop a file, or type \`remember: <decision>\`\n` +
-          `🔎 \`/recall <question>\` to search it\n` +
-          `🤖 Members: \`/connect\` to plug in your AI\n\n` +
-          `Vault: \`${accountId.slice(0, 12)}…${accountId.slice(-6)}\``,
-        { parse_mode: "Markdown" },
+          `🏷️ Tag me — “@${bot.botInfo?.username ?? "HiveMind"} we ship on June 21” — or drop a file\n` +
+          `🔎 /recall <question> to search it\n` +
+          `🤖 Members: /connect to plug in your AI\n\n` +
+          `Vault: ${accountId.slice(0, 12)}…${accountId.slice(-6)}`,
       )
       .catch(() => {});
   },
@@ -304,12 +305,12 @@ async function resolveGroup(ctx: Context): Promise<GroupRecord | null> {
   }
 }
 
-bot.start((ctx) => ctx.reply("🐝 HiveMind is listening. Drop files or use `remember: <decision>` / reply `/save`."));
+bot.start((ctx) => ctx.reply(`🐝 HiveMind is listening. Tag me — “@${ctx.me} we ship on June 21” — drop a file, or reply /save to remember a message.`));
 
 // --- /setup → (re)issue the onboarding link for this group ---
 bot.command("setup", async (ctx) => {
   const existing = await registry.get(String(ctx.chat.id));
-  if (existing) return ctx.reply("✅ This group is already set up. Drop files or use `remember: <decision>`.");
+  if (existing) return ctx.reply(`✅ This group is already set up. Tag me — “@${ctx.me} <decision>” — or drop a file.`);
   await ctx.reply(`Activate HiveMind for this group (you'll own the keys):\n${onboardingLink(ctx.chat.id)}`);
 });
 
@@ -486,9 +487,35 @@ bot.command("save", async (ctx) => {
 // --- text: explicit "remember:" trigger (high precision for v1) ---
 bot.on("text", async (ctx) => {
   const text = ctx.message.text;
-  if (!/^remember:/i.test(text)) return; // passive auto-capture via analyze() is a follow-up
-  const fact = text.replace(/^remember:\s*/i, "").trim();
-  if (!fact) return;
+
+  // Primary UX: @-mention the bot — "@HiveMindBot we ship on June 21".
+  // Strip every @mention of the bot from the text; the remainder is the fact.
+  const me = `@${ctx.me}`.toLowerCase();
+  const mentions = (ctx.message.entities ?? []).filter(
+    (e) => e.type === "mention" && text.slice(e.offset, e.offset + e.length).toLowerCase() === me,
+  );
+  const repliedToBot =
+    (ctx.message as any).reply_to_message?.from?.id === ctx.botInfo?.id;
+
+  let fact: string | null = null;
+  if (mentions.length > 0) {
+    // Remove the mention spans (back-to-front so offsets stay valid).
+    let stripped = text;
+    for (const e of [...mentions].sort((a, b) => b.offset - a.offset)) {
+      stripped = stripped.slice(0, e.offset) + stripped.slice(e.offset + e.length);
+    }
+    fact = stripped.replace(/\s+/g, " ").trim();
+  } else if (repliedToBot && !text.startsWith("/")) {
+    fact = text.trim(); // reply to the bot = remember this
+  } else if (/^remember:/i.test(text)) {
+    fact = text.replace(/^remember:\s*/i, "").trim(); // legacy alias
+  }
+
+  if (fact == null) return;
+  if (!fact) {
+    // Mentioned with no content — guide instead of silently ignoring.
+    return void ctx.reply("🐝 Tag me with the thing to remember, e.g. “@" + ctx.me + " we ship on June 21”.").catch(() => {});
+  }
   const rec = await resolveGroup(ctx);
   if (!rec) return;
   await ingestText({ record: rec, network, serverUrl }, fact, "fact");
