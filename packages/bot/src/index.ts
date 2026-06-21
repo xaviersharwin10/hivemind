@@ -362,7 +362,24 @@ async function resolveGroup(ctx: Context): Promise<GroupRecord | null> {
   }
 }
 
-bot.start((ctx) => ctx.reply(`🐝 HiveMind is listening. Tag me — “@${ctx.me} we ship on June 21” — drop a file, or reply /save to remember a message.`));
+bot.start((ctx) => {
+  // Private chat (e.g. someone clicked the t.me link from the repo): HiveMind only
+  // works inside a group, so explain that and give a one-tap "add to group" button.
+  if (ctx.chat?.type === "private") {
+    const username = ctx.botInfo?.username ?? ctx.me;
+    return ctx.reply(
+      `🐝 Welcome to HiveMind!\n\n` +
+        `I turn your Telegram group's decisions & shared files into a verifiable, portable memory that any AI (Claude Desktop, Cursor, or claude.ai) can recall — owned by you, not us.\n\n` +
+        `⚠️ I work inside a group, not in this private chat. To get started:\n` +
+        `1️⃣ Add me to your group (button below)\n` +
+        `2️⃣ I'll DM the group's creator a one-tap setup link\n` +
+        `3️⃣ Then just @mention me to remember a decision, or drop a file\n\n` +
+        `Learn more: https://github.com/xaviersharwin10/hivemind`,
+      Markup.inlineKeyboard([[Markup.button.url("➕ Add HiveMind to a group", `https://t.me/${username}?startgroup=true`)]]),
+    );
+  }
+  return ctx.reply(`🐝 HiveMind is listening. Tag me — “@${ctx.me} we ship on June 21” — drop a file, or reply /save to remember a message.`);
+});
 
 // --- /setup → (re)issue the onboarding link for this group ---
 bot.command("setup", async (ctx) => {
