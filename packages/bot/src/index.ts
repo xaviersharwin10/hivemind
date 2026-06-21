@@ -277,8 +277,11 @@ const onboard = new OnboardServer(
     }
 
     const suiAddress = addressFromEd25519PublicKey(hexToBytes(info.memberPubKeyHex));
-    await registry.addMember(info.chatId, { label: info.label, suiAddress, addedAt: Date.now() });
-    groupCache.delete(info.chatId); // member count changed → refresh cache
+    // Persist the member onto the CHAIN-RESOLVED record (not registry.addMember,
+    // which throws when the ephemeral local store has no entry after a redeploy).
+    rec.members = [...rec.members, { label: info.label, suiAddress, addedAt: Date.now() }];
+    await registry.upsert(rec).catch((e) => console.error(`[connect] member persist failed (non-fatal): ${(e as Error).message}`));
+    groupCache.set(info.chatId, rec); // keep cache fresh with the new member
     const config = mcpConfig(rec, info.memberPrivKey);
     try {
       await bot.telegram.sendMessage(
