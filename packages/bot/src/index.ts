@@ -248,8 +248,12 @@ const onboard = new OnboardServer(
   },
   // Flow 3: owner approved → deliver the member's key + MCP config privately.
   async (info: ConnectInfo) => {
+    console.log(`[connect] approve fired chat=${info.chatId} requester=${info.requesterUserId} (${info.requesterName}) enclaveEnable=${!!info.enclaveEnable}`);
     const rec = await registry.get(info.chatId);
-    if (!rec) return;
+    if (!rec) {
+      console.error(`[connect] NO REC for chat=${info.chatId} — cannot DM key; aborting silently`);
+      return;
+    }
 
     // Enclave-enable: the owner just authorized the shared enclave delegate for
     // this group (claude.ai TEE). No personal key to deliver — just confirm.
@@ -274,9 +278,10 @@ const onboard = new OnboardServer(
         `✅ You're connected to the group's HiveMind memory!\n\nPaste this into your Claude Desktop config (claude_desktop_config.json), then restart Claude:\n\n\`\`\`json\n${config}\n\`\`\`\n\nThen ask Claude to "recall what the group decided".`,
         { parse_mode: "Markdown" },
       );
+      console.log(`[connect] DM delivered to requester=${info.requesterUserId}`);
     } catch (e) {
       // Telegram blocks bot→user DMs until the user has started the bot.
-      console.error("connect DM failed:", (e as Error).message);
+      console.error(`[connect] DM FAILED to requester=${info.requesterUserId}:`, (e as Error).message);
       await bot.telegram
         .sendMessage(
           info.chatId,
@@ -431,6 +436,7 @@ async function runConnect(ctx: Context): Promise<void> {
     return;
   }
   const from = ctx.from;
+  console.log(`[connect] /connect requested chat=${ctx.chat!.id} requester=${from!.id} (${from?.first_name})`);
   const member = await generateDelegateKey();
   const token = onboard.issueConnectToken({
     chatId: String(ctx.chat!.id),

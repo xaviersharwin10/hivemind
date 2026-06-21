@@ -184,6 +184,7 @@ export class OnboardServer {
             return json(res, 400, { error: "Invalid or expired connect request." });
           }
           this.connectPending.delete(token);
+          console.log(`[connect] /connect/complete token ok → chat=${info.chatId} requester=${info.requesterUserId} enclaveEnable=${!!info.enclaveEnable}`);
           await this.onConnectComplete(info);
           return json(res, 200, { ok: true });
         } catch (e) {
