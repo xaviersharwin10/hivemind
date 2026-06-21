@@ -249,9 +249,17 @@ const onboard = new OnboardServer(
   // Flow 3: owner approved → deliver the member's key + MCP config privately.
   async (info: ConnectInfo) => {
     console.log(`[connect] approve fired chat=${info.chatId} requester=${info.requesterUserId} (${info.requesterName}) enclaveEnable=${!!info.enclaveEnable}`);
-    const rec = await registry.get(info.chatId);
-    if (!rec) {
-      console.error(`[connect] NO REC for chat=${info.chatId} — cannot DM key; aborting silently`);
+    // Resolve chain-backed (same as /connect), NOT the local store — Render's disk
+    // is ephemeral, so registry.get() is empty after any redeploy even though the
+    // group is fully onboarded on-chain. groupFor() reconstructs it from the chain.
+    let rec: GroupRecord;
+    try {
+      rec = await groupFor(Number(info.chatId));
+    } catch (e) {
+      console.error(`[connect] could not resolve group chat=${info.chatId}: ${(e as Error).message}`);
+      await bot.telegram
+        .sendMessage(info.chatId, `⚠️ ${info.requesterName}, your approval went through but I couldn't resolve this group's memory to send your key. Please run /connect once more.`)
+        .catch(() => {});
       return;
     }
 
