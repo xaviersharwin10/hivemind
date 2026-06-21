@@ -6,6 +6,7 @@
 
 **🎥 Demo video → [youtu.be/td8tu_3lN1w](https://youtu.be/td8tu_3lN1w)** &nbsp;·&nbsp; **🤖 Try it live → [t.me/Sui_hivemind_bot](https://t.me/Sui_hivemind_bot)** (add it to a Telegram group)
 **🔗 claude.ai connector:** `https://hivemind-mcp.onrender.com/mcp` &nbsp;·&nbsp; **Onboarding:** [hivemind-onboard.vercel.app](https://hivemind-onboard.vercel.app)
+<sub>ℹ️ The live claude.ai (Path B) enclave runs on metered AWS and may pause if our credits lapse — see [Live Path B availability](#usage). Path A and the demo video are unaffected.</sub>
 
 ---
 
@@ -102,6 +103,8 @@ Our contract source + tests: [packages/contracts/hivemind](packages/contracts/hi
 3. Ask: *"use hivemind to recall the ship date."* The recall runs inside the **attested Nautilus enclave**; the result is enclave-signed and verified on-chain before you see it.
 
 > If recall ever fails with a generic error, the connector's OAuth token has gone stale — **disconnect & reconnect** the connector in claude.ai to mint a fresh one.
+
+> ⚠️ **Live Path B availability:** the claude.ai path runs on a real **AWS Nitro enclave we pay for by the hour**, so during/after the hackathon it may be **temporarily offline if our AWS credits lapse**. If so: the **[demo video](https://youtu.be/td8tu_3lN1w)** shows the full Path B flow end-to-end; **Path A** works with **zero infrastructure of ours** (self-custody, on your machine); and the enclave's on-chain attestation + all contracts above remain **verifiable regardless**. Ping us and we'll redeploy the enclave.
 
 ---
 
